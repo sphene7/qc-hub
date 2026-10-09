@@ -1,0 +1,27 @@
+================================================================================
+FILE: 2026年客诉及反馈跟进表-更新0816.xlsx
+SIZE: 179739
+SHEETS: 汇总 | 客诉跟进表  | 月度推移图 | 月度跟进情况 | 填写说明 | 透视
+  - [汇总] max_row=50 max_col=15 dim=B2:O50
+  - [客诉跟进表 ] max_row=404 max_col=52 dim=A1:AZ404
+  - [月度推移图] max_row=16 max_col=9 dim=B2:I16
+  - [月度跟进情况] max_row=142 max_col=41 dim=B1:AO142
+  - [填写说明] max_row=2 max_col=21 dim=A1:U2
+  - [透视] max_row=9 max_col=8 dim=A1:H9
+================================================================================
+FILE: KK机种产线巡检问题清单NEW20260815.xlsx
+SIZE: 427244
+SHEETS: 类别定义   | 抽检数据   | 问题清单  | 问题点-趋势图 | Sheet5 | 代码
+  - [类别定义  ] max_row=63 max_col=16384 dim=A1:XFD63
+  - [抽检数据  ] max_row=27 max_col=16257 dim=A1:XAG27
+  - [问题清单 ] max_row=270 max_col=19 dim=A1:S270
+  - [问题点-趋势图] max_row=47 max_col=20 dim=B1:T47
+  - [Sheet5] max_row=20 max_col=5 dim=A4:E20
+  - [代码] max_row=66 max_col=12 dim=B1:L66
+================================================================================
+FILE: 变焦产品抽检记录表2026年8月.xlsx
+SIZE: 5578539
+SHEETS: OQC 抽检批次合格率表格 | 首页 | 代码
+  - [OQC 抽检批次合格率表格] max_row=1041308 max_col=33 dim=A1:AG1041308
+  - [首页] max_row=93 max_col=35 dim=A1:AI93
+  - [代码] max_row=187 max_col=16 dim=A1:P187

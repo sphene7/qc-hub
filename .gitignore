@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+dist/
+backend/data/
+.DS_Store
+*.log
+backend/logs/
+deploy/data/bundle.json
+product.modules.json
+.env
+backend/.env
+_inspect.py
+~$*.xlsx
+.~*

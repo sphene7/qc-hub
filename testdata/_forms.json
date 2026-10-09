@@ -1,0 +1,799 @@
+Database 'qc_hub' already exists.
+Database tables initialized.
+[
+  {
+    "title": "KK机种产线巡检问题清单",
+    "primary_sheet": "抽检数据·展开",
+    "main_table": {
+      "sheet": "问题清单 ",
+      "actions": [
+        "edit",
+        "mark_status"
+      ],
+      "display_columns": [
+        "序号",
+        "日期",
+        "月份",
+        "模块",
+        "工位",
+        "问题点描述",
+        "类别",
+        "分类",
+        "人-张程亮",
+        "机-陈刚",
+        "料-王岩良",
+        "法（QCP/SOP）",
+        "环境-刘焕良",
+        "责任单位",
+        "确认人",
+        "工段负责人",
+        "巡检人",
+        "是否结案",
+        "逾期天数"
+      ]
+    },
+    "charts": [
+      {
+        "id": "chart_trend",
+        "type": "line",
+        "title": "问题趋势",
+        "x_field": "日期",
+        "y_field": null,
+        "aggregation": "count",
+        "source_sheet": "问题清单 "
+      },
+      {
+        "id": "chart_category_pie",
+        "type": "pie",
+        "title": "问题类别分布",
+        "x_field": "类别",
+        "y_field": null,
+        "aggregation": "count",
+        "source_sheet": "问题清单 "
+      },
+      {
+        "id": "chart_responsibility_bar",
+        "type": "bar",
+        "title": "责任单位问题数",
+        "x_field": "责任单位",
+        "y_field": null,
+        "aggregation": "count",
+        "source_sheet": "问题清单 "
+      },
+      {
+        "id": "chart_5m_bar",
+        "type": "bar",
+        "title": "5M问题分布",
+        "x_field": "分类",
+        "y_field": "人-张程亮",
+        "aggregation": "sum",
+        "source_sheet": "问题清单 "
+      },
+      {
+        "id": "chart_module_bar",
+        "type": "bar",
+        "title": "模块问题数",
+        "x_field": "模块",
+        "y_field": null,
+        "aggregation": "count",
+        "source_sheet": "问题清单 "
+      }
+    ],
+    "kpis": [
+      {
+        "id": "kpi_total_issues",
+        "label": "问题总数",
+        "format": "int",
+        "calculation": {
+          "type": "count"
+        },
+        "source_sheet": "问题清单 "
+      },
+      {
+        "id": "kpi_open_issues",
+        "label": "未关闭问题数",
+        "format": "int",
+        "calculation": {
+          "type": "count",
+          "field": "序号"
+        },
+        "source_sheet": "问题清单 "
+      },
+      {
+        "id": "kpi_issue_rate",
+        "label": "抽检不良率",
+        "format": "percent",
+        "calculation": {
+          "type": "rate",
+          "field": "不良数"
+        },
+        "source_sheet": "抽检数据·展开"
+      },
+      {
+        "id": "kpi_avg_daily_issues",
+        "label": "日均问题数",
+        "format": "number",
+        "calculation": {
+          "type": "avg",
+          "field": "序号"
+        },
+        "source_sheet": "问题清单 "
+      },
+      {
+        "id": "kpi_5m_issues",
+        "label": "5M问题总数",
+        "format": "int",
+        "calculation": {
+          "type": "sum",
+          "field": "人-张程亮"
+        },
+        "source_sheet": "问题清单 "
+      }
+    ],
+    "filters": [
+      {
+        "type": "date_range",
+        "field": "日期",
+        "label": "日期范围"
+      },
+      {
+        "type": "enum",
+        "field": "类别",
+        "label": "类别"
+      },
+      {
+        "type": "enum",
+        "field": "责任单位",
+        "label": "责任单位"
+      },
+      {
+        "type": "enum",
+        "field": "模块",
+        "label": "模块"
+      }
+    ],
+    "forms": [
+      {
+        "sheet": "抽检数据",
+        "total_cols": 187,
+        "form_fields": [
+          "抽检状况",
+          "一群点胶-抽检数",
+          "一群点胶-不良数",
+          "一群点胶-良品数",
+          "二群点胶-抽检数",
+          "二群点胶-不良数",
+          "二群点胶-良品数",
+          "三群点胶-抽检数",
+          "三群点胶-不良数",
+          "三群点胶-良品数",
+          "四群点胶-抽检数",
+          "四群点胶-不良数",
+          "四群点胶-良品数",
+          "五群点胶-抽检数",
+          "五群点胶-不良数",
+          "五群点胶-良品数",
+          "六群点胶-抽检数",
+          "六群点胶-不良数",
+          "六群点胶-良品数",
+          "OIS上滚珠片点胶-抽检数",
+          "OIS上滚珠片点胶-不良数",
+          "OIS上滚珠片点胶-良品数"
+        ],
+        "computed": [],
+        "missing_from_form": [
+          "OIS下滚珠片点胶-抽检数",
+          "OIS下滚珠片点胶-不良数",
+          "OIS下滚珠片点胶-良品数",
+          "OIS线圈点胶-抽检数",
+          "OIS线圈点胶-不良数",
+          "OIS线圈点胶-良品数",
+          "OIS驱动磁石点胶-抽检数",
+          "OIS驱动磁石点胶-不良数",
+          "OIS驱动磁石点胶-良品数",
+          "OIS感应磁石点胶-抽检数",
+          "OIS感应磁石点胶-不良数",
+          "OIS感应磁石点胶-良品数",
+          "AF吸附磁石点胶-抽检数",
+          "AF吸附磁石点胶-不良数",
+          "AF吸附磁石点胶-良品数",
+          "AF线圈点胶-抽检数",
+          "AF线圈点胶-不良数",
+          "AF线圈点胶-良品数",
+          "AF贴纸-抽检数",
+          "AF贴纸-不良数",
+          "AF贴纸-良品数",
+          "AF橡胶垫点胶-抽检数",
+          "AF橡胶垫点胶-不良数",
+          "AF橡胶垫点胶-良品数",
+          "OISFPC点胶-抽检数",
+          "OISFPC点胶-不良数",
+          "OISFPC点胶-良品数",
+          "AF磁轭磁石点胶-抽检数",
+          "AF磁轭磁石点胶-不良数",
+          "AF磁轭磁石点胶-良品数",
+          "AF主副导轴涂油-抽检数",
+          "AF主副导轴涂油-不良数",
+          "AF主副导轴涂油-良品数",
+          "AF外观全点胶-抽检数",
+          "AF外观全点胶-不良数",
+          "AF外观全点胶-良品数",
+          "AF支架锁附-抽检数",
+          "AF支架锁附-不良数",
+          "AF支架锁附-良品数",
+          "AFFPC-抽检数",
+          "AFFPC-不良数",
+          "AFFPC-良品数",
+          "光圈/三群组装-抽检数",
+          "光圈/三群组装-不良数",
+          "光圈/三群组装-良品数",
+          "六群调芯点胶-抽检数",
+          "六群调芯点胶-不良数",
+          "六群调芯点胶-良品数",
+          "金属套筒点胶-抽检数",
+          "金属套筒点胶-不良数",
+          "金属套筒点胶-良品数",
+          "外观筒-抽检数",
+          "外观筒-不良数",
+          "外观筒-良品数",
+          "一群调心点胶-抽检数",
+          "一群调心点胶-不良数",
+          "一群调心点胶-良品数",
+          "尾板锁附-抽检数",
+          "尾板锁附-不良数",
+          "尾板锁附-良品数",
+          "销钉组装-抽检数",
+          "销钉组装-不良数",
+          "销钉组装-良品数",
+          "弹片点胶-抽检数",
+          "弹片点胶-不良数",
+          "弹片点胶-良品数",
+          "光机组件锁附-抽检数",
+          "光机组件锁附-不良数",
+          "光机组件锁附-良品数",
+          "驱动板锁附-抽检数",
+          "驱动板锁附-不良数",
+          "驱动板锁附-良品数",
+          "黄杨固定框锁附-抽检数",
+          "黄杨固定框锁附-不良数",
+          "黄杨固定框锁附-良品数",
+          "激光检测-抽检数",
+          "激光检测-不良品",
+          "激光检测-良品数",
+          "遮丑件组立及装配-抽检数",
+          "遮丑件组立及装配-不良品",
+          "遮丑件组立及装配-良品数",
+          "SFR三合一-抽检数",
+          "SFR三合一-不良品",
+          "SFR三合一-良品数",
+          "保护玻璃保压-抽检数",
+          "保护玻璃保压-不良品",
+          "保护玻璃保压-良品数",
+          "半成品外观检测-抽检数",
+          "半成品外观检测-不良品",
+          "半成品外观检测-良品数",
+          "性能检测标定闭环-抽检数",
+          "性能检测标定闭环-不良品",
+          "性能检测标定闭环-良品数",
+          "黄杨模组组装-抽检数",
+          "黄杨模组组装-不良品",
+          "黄杨模组组装-良品数",
+          "ZOOM标定-抽检数",
+          "ZOOM标定-不良品",
+          "ZOOM标定-良品数",
+          "一群组立-抽检数",
+          "一群组立-不良品",
+          "一群组立-良品数",
+          "合体外观检查-抽检数",
+          "合体外观检查-不良品",
+          "合体外观检查-良品数",
+          "震动测试-抽检数",
+          "震动测试-不良品",
+          "震动测试-良品数",
+          "一群固定框双面胶锁附-抽检数",
+          "一群固定框双面胶锁附-不良品",
+          "一群固定框双面胶锁附-良品数",
+          "三级筒组件-抽检数",
+          "三级筒组件-不良品",
+          "三级筒组件-良品数",
+          "AF群组件六群组件-抽检数",
+          "AF群组件六群组件-不良品",
+          "AF群组件六群组件-良品数",
+          "ZOOM固件烧录-抽检数",
+          "ZOOM固件烧录-不良品",
+          "ZOOM固件烧录-良品数",
+          "齿轮组装-抽检数",
+          "齿轮组装-不良品",
+          "齿轮组装-良品数",
+          "光机与外观筒装配-抽检数",
+          "光机与外观筒装配-不良品",
+          "光机与外观筒装配-良品数",
+          "光通量标定-抽检数",
+          "光通量标定-不良品",
+          "光通量标定-良品数",
+          "一群三颗螺帽点胶-抽检数",
+          "一群三颗螺帽点胶-不良品",
+          "一群三颗螺帽点胶-良品数",
+          "波前后外观检查-抽检数",
+          "波前后外观检查-不良品",
+          "波前后外观检查-良品数",
+          "六群组装-抽检数",
+          "六群组装-不良品",
+          "六群组装-良品数",
+          "SN码烧录-抽检数",
+          "SN码烧录-不良品",
+          "SN码烧录-良品数",
+          "暗影测试-抽检数",
+          "暗影测试-不良品",
+          "暗影测试-良品数",
+          "光圈三群组装锁附-抽检数",
+          "光圈三群组装锁附-不良品",
+          "光圈三群组装锁附-良品数",
+          "防抖件作动检测-抽检数",
+          "防抖件作动检测-不良品",
+          "防抖件作动检测-良品数",
+          "AF群组组装-抽检数",
+          "AF群组组装-不良品",
+          "AF群组组装-良品数",
+          "OTP烧录确认-抽检数",
+          "OTP烧录确认-不良品",
+          "OTP烧录确认-良品数",
+          "六群凸轮框点胶-抽检数",
+          "六群凸轮框点胶-不良品",
+          "六群凸轮框点胶-良品数",
+          "173/178点胶-抽检数",
+          "173/178点胶-不良品",
+          "173/178点胶-良品数",
+          "合体总组-抽检数",
+          "合体总组-不良品",
+          "合体总组-良品数"
+        ]
+      },
+      {
+        "sheet": "问题清单",
+        "total_cols": 19,
+        "form_fields": [
+          "日期",
+          "模块",
+          "工位",
+          "问题点描述",
+          "分类",
+          "人-张程亮",
+          "机-陈刚",
+          "料-王岩良",
+          "法（QCP/SOP）",
+          "环境-刘焕良",
+          "责任单位",
+          "确认人",
+          "巡检人",
+          "是否结案"
+        ],
+        "computed": [
+          "序号",
+          "月份",
+          "类别",
+          "工段负责人",
+          "逾期天数"
+        ],
+        "missing_from_form": []
+      }
+    ]
+  },
+  {
+    "title": "2026年客诉及反馈跟进表-更新0816",
+    "primary_sheet": "客诉跟进表 ",
+    "main_table": {
+      "sheet": "客诉跟进表 ",
+      "actions": [
+        "edit",
+        "mark_status"
+      ],
+      "display_columns": [
+        "月份",
+        "产品线",
+        "问题归类",
+        "不良类型归类",
+        "投诉日期",
+        "系列",
+        "详细机种",
+        "生产地",
+        "客户/發生處",
+        "投诉内容",
+        "不良率",
+        "暂定对策",
+        "不良属性",
+        "责任部门"
+      ]
+    },
+    "charts": [
+      {
+        "id": "chart_trend",
+        "type": "line",
+        "title": "月度客诉趋势",
+        "x_field": "月度",
+        "y_field": "总件数",
+        "aggregation": "sum",
+        "source_sheet": "月度推移图"
+      },
+      {
+        "id": "chart_status",
+        "type": "pie",
+        "title": "客诉状态分布",
+        "x_field": "closed",
+        "y_field": null,
+        "aggregation": "sum",
+        "source_sheet": "月度推移图"
+      },
+      {
+        "id": "chart_product",
+        "type": "bar",
+        "title": "各产品线客诉数量",
+        "x_field": "产品线",
+        "y_field": "序号",
+        "aggregation": "count",
+        "source_sheet": "客诉跟进表 "
+      },
+      {
+        "id": "chart_dept",
+        "type": "bar",
+        "title": "责任部门客诉分布",
+        "x_field": "责任部门",
+        "y_field": "序号",
+        "aggregation": "count",
+        "source_sheet": "客诉跟进表 "
+      }
+    ],
+    "kpis": [
+      {
+        "id": "kpi_total",
+        "label": "客诉总件数",
+        "format": "int",
+        "calculation": {
+          "type": "count"
+        },
+        "source_sheet": "客诉跟进表 "
+      },
+      {
+        "id": "kpi_open",
+        "label": "未结案件数",
+        "format": "int",
+        "calculation": {
+          "type": "count",
+          "field": "不良属性"
+        },
+        "source_sheet": "客诉跟进表 "
+      },
+      {
+        "id": "kpi_closed",
+        "label": "已结案件数",
+        "format": "int",
+        "calculation": {
+          "type": "count",
+          "field": "不良属性"
+        },
+        "source_sheet": "客诉跟进表 "
+      },
+      {
+        "id": "kpi_rate",
+        "label": "结案率",
+        "format": "percent",
+        "calculation": {
+          "type": "rate",
+          "field": "结案率"
+        },
+        "source_sheet": "月度推移图"
+      },
+      {
+        "id": "kpi_avg_days",
+        "label": "平均结案天数",
+        "format": "number",
+        "calculation": {
+          "type": "avg",
+          "field": "结案平均天数"
+        },
+        "source_sheet": "月度推移图"
+      }
+    ],
+    "filters": [
+      {
+        "type": "enum",
+        "field": "月份",
+        "label": "月份"
+      },
+      {
+        "type": "enum",
+        "field": "产品线",
+        "label": "产品线"
+      },
+      {
+        "type": "enum",
+        "field": "责任部门",
+        "label": "责任部门"
+      },
+      {
+        "type": "date_range",
+        "field": "投诉日期",
+        "label": "投诉日期"
+      }
+    ],
+    "forms": [
+      {
+        "sheet": "客诉跟进表",
+        "total_cols": 27,
+        "form_fields": [
+          "月份",
+          "产品线",
+          "问题归类",
+          "不良类型归类",
+          "投诉日期",
+          "系列",
+          "详细机种",
+          "生产地",
+          "客户/發生處",
+          "投诉内容",
+          "不良率",
+          "暂定对策",
+          "不良属性",
+          "责任部门",
+          "责任跟踪者",
+          "结案日期",
+          "结案状况（Y/N）",
+          "不良原因",
+          "改善对策(恒久对策）",
+          "内部未结案待跟进事项",
+          "原因归类",
+          "结案状态"
+        ],
+        "computed": [
+          "序号",
+          "结案天数",
+          "延期天数"
+        ],
+        "missing_from_form": [
+          "结案后稽核事项（25/11/6开始）",
+          "模块"
+        ]
+      },
+      {
+        "sheet": "月度跟进情况",
+        "total_cols": 5,
+        "form_fields": [
+          "客户担当",
+          "客诉总件数",
+          "结案件数"
+        ],
+        "computed": [
+          "累计结案率"
+        ],
+        "missing_from_form": [
+          "列A"
+        ]
+      }
+    ]
+  },
+  {
+    "title": "变焦产品抽检记录表2026年8月",
+    "primary_sheet": "OQC 抽检批次合格率表格",
+    "main_table": {
+      "sheet": "OQC 抽检批次合格率表格",
+      "actions": [
+        "edit",
+        "mark_status"
+      ],
+      "display_columns": [
+        "日期",
+        "系列",
+        "送检类型",
+        "送检单位",
+        "送检数量",
+        "不良数量",
+        "不良率",
+        "抽检批",
+        "合格批",
+        "合格批率"
+      ]
+    },
+    "charts": [
+      {
+        "id": "chart_defect_rate_trend",
+        "type": "line",
+        "title": "不良率趋势",
+        "x_field": "日期",
+        "y_field": "不良率",
+        "aggregation": "avg",
+        "source_sheet": "OQC 抽检批次合格率表格"
+      },
+      {
+        "id": "chart_batch_rate_by_series",
+        "type": "bar",
+        "title": "各系列批次合格率",
+        "x_field": "系列",
+        "y_field": "合格批率",
+        "aggregation": "avg",
+        "source_sheet": "OQC 抽检批次合格率表格"
+      },
+      {
+        "id": "chart_defect_qty_by_type",
+        "type": "pie",
+        "title": "送检类型不良数量分布",
+        "x_field": "送检类型",
+        "y_field": "不良数量",
+        "aggregation": "sum",
+        "source_sheet": "OQC 抽检批次合格率表格"
+      },
+      {
+        "id": "chart_inspection_qty_by_unit",
+        "type": "bar",
+        "title": "各送检单位送检数量",
+        "x_field": "送检单位",
+        "y_field": "送检数量",
+        "aggregation": "sum",
+        "source_sheet": "OQC 抽检批次合格率表格"
+      }
+    ],
+    "kpis": [
+      {
+        "id": "kpi_total_inspection_qty",
+        "label": "总送检数量",
+        "format": "int",
+        "calculation": {
+          "type": "sum",
+          "field": "送检数量"
+        },
+        "source_sheet": "OQC 抽检批次合格率表格"
+      },
+      {
+        "id": "kpi_total_defect_qty",
+        "label": "总不良数量",
+        "format": "int",
+        "calculation": {
+          "type": "sum",
+          "field": "不良数量"
+        },
+        "source_sheet": "OQC 抽检批次合格率表格"
+      },
+      {
+        "id": "kpi_overall_defect_rate",
+        "label": "总不良率",
+        "format": "percent",
+        "calculation": {
+          "type": "rate",
+          "field": "不良率"
+        },
+        "source_sheet": "OQC 抽检批次合格率表格"
+      },
+      {
+        "id": "kpi_batch_qualified_rate",
+        "label": "批次合格率",
+        "format": "percent",
+        "calculation": {
+          "type": "rate",
+          "field": "合格批率"
+        },
+        "source_sheet": "OQC 抽检批次合格率表格"
+      },
+      {
+        "id": "kpi_total_batches",
+        "label": "总抽检批数",
+        "format": "int",
+        "calculation": {
+          "type": "sum",
+          "field": "抽检批"
+        },
+        "source_sheet": "OQC 抽检批次合格率表格"
+      }
+    ],
+    "filters": [
+      {
+        "type": "date_range",
+        "field": "日期",
+        "label": "日期范围"
+      },
+      {
+        "type": "enum",
+        "field": "系列",
+        "label": "系列"
+      },
+      {
+        "type": "enum",
+        "field": "送检类型",
+        "label": "送检类型"
+      },
+      {
+        "type": "enum",
+        "field": "送检单位",
+        "label": "送检单位"
+      }
+    ],
+    "forms": [
+      {
+        "sheet": "OQC 抽检批次合格率表格",
+        "total_cols": 33,
+        "form_fields": [
+          "日期",
+          "月份",
+          "时间段",
+          "送检类型",
+          "机种",
+          "送检数量",
+          "外观抽检数量",
+          "机能抽检数量",
+          "不良数量",
+          "不良位置",
+          "不良代码",
+          "数量"
+        ],
+        "computed": [
+          "系列",
+          "送检单位",
+          "不良率",
+          "抽检批",
+          "合格批",
+          "合格批率",
+          "判定",
+          "确认者",
+          "课室负责人",
+          "现象"
+        ],
+        "missing_from_form": [
+          "同批送检次数",
+          "是否紧急出货",
+          "层别备注",
+          "单据类型",
+          "OA单号",
+          "结案日期",
+          "结案天数",
+          "责任单位",
+          "责任课级负责人",
+          "品质工程师",
+          "判定_2"
+        ]
+      },
+      {
+        "sheet": "首页",
+        "total_cols": 35,
+        "form_fields": [
+          "列B",
+          "列C",
+          "1日",
+          "2日",
+          "3日",
+          "4日",
+          "5日",
+          "6日",
+          "7日",
+          "8日",
+          "9日",
+          "10日",
+          "11日",
+          "12日",
+          "13日",
+          "14日",
+          "15日",
+          "16日",
+          "17日",
+          "18日",
+          "19日",
+          "20日"
+        ],
+        "computed": [
+          "TTL"
+        ],
+        "missing_from_form": [
+          "列A",
+          "21日",
+          "22日",
+          "23日",
+          "24日",
+          "25日",
+          "26日",
+          "27日",
+          "28日",
+          "29日",
+          "30日",
+          "31日"
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "system_name": "XXX管理系统",
+  "system_subtitle": "产线巡检 · 客诉跟进 · 产品抽检",
+  "modules": [
+    {
+      "key": "inspection",
+      "label": "产线巡检",
+      "description": "KK机种产线巡检问题清单",
+      "project_id": "在此填入导出后的 wid"
+    },
+    {
+      "key": "complaint",
+      "label": "客诉跟进",
+      "description": "2026年客诉及反馈跟进表",
+      "project_id": "在此填入导出后的 wid"
+    },
+    {
+      "key": "sampling",
+      "label": "产品抽检",
+      "description": "变焦产品抽检记录表",
+      "project_id": "在此填入导出后的 wid"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "show_raw_sheets": false,
+  "show_export_merged": true,
+  "project_nav_orders": {
+    "inspection": [
+      "dashboard",
+      "sampling",
+      "codes",
+      "analytics",
+      "sheets"
+    ],
+    "complaint": [
+      "dashboard",
+      "analytics",
+      "sheets"
+    ],
+    "sampling": [
+      "dashboard",
+      "analytics",
+      "codes",
+      "sheets"
+    ]
+  }
+}

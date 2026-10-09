@@ -1,0 +1,1720 @@
+﻿python : C:\Users\Sphene\anaconda3\Lib\site-packages\openpyxl\worksheet\_read_only.py:85: UserWarning: Unknown extensio
+n is not supported and will be removed
+At C:\Users\Sphene\AppData\Local\Temp\ps-script-7f5d856c-21a8-4de6-90d5-84dfb9e82868.ps1:100 char:1
++ python "e:\JMCL_WORK\2026_09_01\qc-hub\backend\scripts\analyze_testda ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\Sphene...will be removed:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  for idx, row in parser.parse():
+C:\Users\Sphene\anaconda3\Lib\site-packages\openpyxl\worksheet\_read_only.py:85: UserWarning: Conditional Formatting ex
+tension is not supported and will be removed
+  for idx, row in parser.parse():
+C:\Users\Sphene\anaconda3\Lib\site-packages\openpyxl\worksheet\_read_only.py:85: UserWarning: Sparkline Group extension
+ is not supported and will be removed
+  for idx, row in parser.parse():
+[
+  {
+    "file": "2026年客诉及反馈跟进表-更新0816.xlsx",
+    "raw": {
+      "file": "2026年客诉及反馈跟进表-更新0816.xlsx",
+      "sheets": [
+        {
+          "name": "汇总",
+          "max_row": 50,
+          "max_col": 15,
+          "state": "visible"
+        },
+        {
+          "name": "客诉跟进表 ",
+          "max_row": 404,
+          "max_col": 52,
+          "state": "visible"
+        },
+        {
+          "name": "月度推移图",
+          "max_row": 16,
+          "max_col": 9,
+          "state": "visible"
+        },
+        {
+          "name": "月度跟进情况",
+          "max_row": 142,
+          "max_col": 41,
+          "state": "visible"
+        },
+        {
+          "name": "填写说明",
+          "max_row": 2,
+          "max_col": 21,
+          "state": "visible"
+        },
+        {
+          "name": "透视",
+          "max_row": 9,
+          "max_col": 8,
+          "state": "hidden"
+        }
+      ]
+    },
+    "parsed": {
+      "title": "2026年客诉及反馈跟进表-更新0816",
+      "primary_sheet": "月度跟进情况",
+      "sheets": [
+        {
+          "name": "汇总",
+          "kind": "empty",
+          "row_count": 0,
+          "col_count": 12,
+          "primary": false,
+          "empty": true,
+          "formula_count": 5,
+          "formula_functions": [
+            {
+              "name": "COUNTIF",
+              "count": 4
+            }
+          ],
+          "cross_sheets": [
+            "客诉跟进表"
+          ],
+          "columns": [
+            "列A",
+            "列B",
+            "Open",
+            "0",
+            "件",
+            "On-going",
+            "0_2",
+            "件_2",
+            "列I",
+            "Closed",
+            "0_3",
+            "件_3"
+          ],
+          "column_roles": {
+            "列A": "empty",
+            "列B": "empty",
+            "Open": "empty",
+            "0": "empty",
+            "件": "empty",
+            "On-going": "empty",
+            "0_2": "empty",
+            "件_2": "empty",
+            "列I": "empty",
+            "Closed": "empty",
+            "0_3": "empty",
+            "件_3": "empty"
+          },
+          "kpis": [],
+          "charts": [],
+          "filters": [],
+          "joins": [],
+          "note": null
+        },
+        {
+          "name": "客诉跟进表 ",
+          "kind": "empty",
+          "row_count": 0,
+          "col_count": 27,
+          "primary": false,
+          "empty": true,
+          "formula_count": 0,
+          "formula_functions": [],
+          "cross_sheets": [],
+          "columns": [
+            "月份",
+            "产品线",
+            "序号",
+            "问题归类",
+            "不良类型归类",
+            "投诉日期",
+            "系列",
+            "详细机种",
+            "生产地",
+            "客户/發生處",
+            "投诉内容",
+            "不良率",
+            "暂定对策",
+            "不良属性",
+            "责任部门",
+            "责任跟踪者",
+            "结案日期",
+            "结案天数",
+            "结案状况（Y/N）",
+            "不良原因",
+            "改善对策(恒久对策）",
+            "内部未结案待跟进事项",
+            "结案后稽核事项（25/11/6开始）",
+            "原因归类",
+            "结案状态",
+            "延期天数",
+            "模块"
+          ],
+          "column_roles": {
+            "月份": "empty",
+            "产品线": "empty",
+            "序号": "empty",
+            "问题归类": "empty",
+            "不良类型归类": "empty",
+            "投诉日期": "empty",
+            "系列": "empty",
+            "详细机种": "empty",
+            "生产地": "empty",
+            "客户/發生處": "empty",
+            "投诉内容": "empty",
+            "不良率": "empty",
+            "暂定对策": "empty",
+            "不良属性": "empty",
+            "责任部门": "empty",
+            "责任跟踪者": "empty",
+            "结案日期": "empty",
+            "结案天数": "empty",
+            "结案状况（Y/N）": "empty",
+            "不良原因": "empty",
+            "改善对策(恒久对策）": "empty",
+            "内部未结案待跟进事项": "empty",
+            "结案后稽核事项（25/11/6开始）": "empty",
+            "原因归类": "empty",
+            "结案状态": "empty",
+            "延期天数": "empty",
+            "模块": "empty"
+          },
+          "kpis": [],
+          "charts": [],
+          "filters": [],
+          "joins": [],
+          "note": "此表只有表头、没有明细数据（常见于 WPS 未把值写入单元格）。已保留列结构和其它表上的公式关系。"
+        },
+        {
+          "name": "月度推移图",
+          "kind": "dashboard",
+          "row_count": 13,
+          "col_count": 9,
+          "primary": false,
+          "empty": false,
+          "formula_count": 91,
+          "formula_functions": [
+            {
+              "name": "SUMPRODUCT",
+              "count": 36
+            },
+            {
+              "name": "SUM",
+              "count": 17
+            },
+            {
+              "name": "IF",
+              "count": 15
+            },
+            {
+              "name": "SUMIF",
+              "count": 12
+            }
+          ],
+          "cross_sheets": [
+            "客诉跟进表"
+          ],
+          "columns": [
+            "列A",
+            "月度",
+            "closed",
+            "on-going",
+            "open",
+            "总件数",
+            "结案率",
+            "结案平均天数",
+            "总结案天数"
+          ],
+          "column_roles": {
+            "列A": "empty",
+            "月度": "dimension",
+            "closed": "measure",
+            "on-going": "measure",
+            "open": "measure",
+            "总件数": "measure",
+            "结案率": "empty",
+            "结案平均天数": "empty",
+            "总结案天数": "measure"
+          },
+          "kpis": [
+            "记录数"
+          ],
+          "charts": [
+            "按月度·件数"
+          ],
+          "filters": [
+            "月度"
+          ],
+          "joins": [],
+          "note": "这是汇总看板表，数字多半由 COUNTIF / SUMIF 从明细表算出来。"
+        },
+        {
+          "name": "月度跟进情况",
+          "kind": "fact",
+          "row_count": 115,
+          "col_count": 5,
+          "primary": true,
+          "empty": false,
+          "formula_count": 89,
+          "formula_functions": [
+            {
+              "name": "IF",
+              "count": 29
+            },
+            {
+              "name": "COUNTIF",
+              "count": 28
+            },
+            {
+              "name": "SUMPRODUCT",
+              "count": 28
+            },
+            {
+              "name": "SUM",
+              "count": 4
+            }
+          ],
+          "cross_sheets": [
+            "客诉跟进表",
+            "汇总"
+          ],
+          "columns": [
+            "列A",
+            "客户担当",
+            "客诉总件数",
+            "结案件数",
+            "累计结案率"
+          ],
+          "column_roles": {
+            "列A": "empty",
+            "客户担当": "dimension",
+            "客诉总件数": "measure",
+            "结案件数": "measure",
+            "累计结案率": "dimension"
+          },
+          "kpis": [
+            "记录数",
+            "累计结案率·累计结案率",
+            "客诉总件数合计"
+          ],
+          "charts": [
+            "累计结案率"
+          ],
+          "filters": [],
+          "joins": [],
+          "note": null
+        },
+        {
+          "name": "填写说明",
+          "kind": "instruction",
+          "row_count": 1,
+          "col_count": 21,
+          "primary": false,
+          "empty": false,
+          "formula_count": 1,
+          "formula_functions": [],
+          "cross_sheets": [],
+          "columns": [
+            "月份",
+            "类型",
+            "序号",
+            "问题归类",
+            "不良原因归类",
+            "投诉日期",
+            "机种",
+            "生产地",
+            "客户/發生處",
+            "投诉内容",
+            "不良率",
+            "暂定对策",
+            "不良属性",
+            "责任部门",
+            "责任跟踪者",
+            "结案日期",
+            "结案天数",
+            "结案状况（Y/N）",
+            "不良原因",
+            "改善对策(恒久对策）",
+            "结案状态"
+          ],
+          "column_roles": {
+            "月份": "dimension",
+            "类型": "dimension",
+            "序号": "text",
+            "问题归类": "dimension",
+            "不良原因归类": "text",
+            "投诉日期": "text",
+            "机种": "dimension",
+            "生产地": "dimension",
+            "客户/發生處": "dimension",
+            "投诉内容": "text",
+            "不良率": "text",
+            "暂定对策": "text",
+            "不良属性": "dimension",
+            "责任部门": "dimension",
+            "责任跟踪者": "dimension",
+            "结案日期": "dimension",
+            "结案天数": "dimension",
+            "结案状况（Y/N）": "dimension",
+            "不良原因": "text",
+            "改善对策(恒久对策）": "text",
+            "结案状态": "dimension"
+          },
+          "kpis": [
+            "记录数",
+            "结案日期·与客户确认结案时间"
+          ],
+          "charts": [
+            "结案日期",
+            "按月份·件数",
+            "按类型·件数",
+            "按问题归类·件数"
+          ],
+          "filters": [],
+          "joins": [],
+          "note": "填写说明，不参与统计。"
+        },
+        {
+          "name": "透视",
+          "kind": "hidden",
+          "row_count": 8,
+          "col_count": 8,
+          "primary": false,
+          "empty": false,
+          "formula_count": 0,
+          "formula_functions": [],
+          "cross_sheets": [],
+          "columns": [
+            "月份",
+            "7月",
+            "列C",
+            "月份_2",
+            "7月_2",
+            "列F",
+            "月份_3",
+            "7月_3"
+          ],
+          "column_roles": {
+            "月份": "dimension",
+            "7月": "measure",
+            "列C": "empty",
+            "月份_2": "dimension",
+            "7月_2": "text",
+            "列F": "empty",
+            "月份_3": "dimension",
+            "7月_3": "text"
+          },
+          "kpis": [
+            "记录数",
+            "7月合计"
+          ],
+          "charts": [
+            "按月份·件数",
+            "按月份_2·件数",
+            "按月份_3·件数"
+          ],
+          "filters": [
+            "月份",
+            "月份_2",
+            "月份_3"
+          ],
+          "joins": [],
+          "note": null
+        }
+      ],
+      "smart_view": {
+        "has_recommendations": false,
+        "main_sheets": [
+          {
+            "name": "月度跟进情况",
+            "row_count": 115,
+            "col_count": 5,
+            "reason": "主要数据表"
+          }
+        ],
+        "lookup_sheets": [],
+        "dashboard_sheets": [
+          {
+            "name": "月度推移图",
+            "kind": "dashboard",
+            "reason": "仪表板/说明"
+          },
+          {
+            "name": "填写说明",
+            "kind": "instruction",
+            "reason": "仪表板/说明"
+          }
+        ],
+        "recommendations": [],
+        "hide_suggestions": [],
+        "summary": "检测到 1 个主数据表，暂无整合建议。"
+      }
+    }
+  },
+  {
+    "file": "KK机种产线巡检问题清单NEW20260815.xlsx",
+    "raw": {
+      "file": "KK机种产线巡检问题清单NEW20260815.xlsx",
+      "sheets": [
+        {
+          "name": "类别定义  ",
+          "max_row": 63,
+          "max_col": 16384,
+          "state": "visible"
+        },
+        {
+          "name": "抽检数据  ",
+          "max_row": 27,
+          "max_col": 16257,
+          "state": "visible"
+        },
+        {
+          "name": "问题清单 ",
+          "max_row": 270,
+          "max_col": 19,
+          "state": "visible"
+        },
+        {
+          "name": "问题点-趋势图",
+          "max_row": 47,
+          "max_col": 20,
+          "state": "visible"
+        },
+        {
+          "name": "Sheet5",
+          "max_row": 20,
+          "max_col": 5,
+          "state": "hidden"
+        },
+        {
+          "name": "代码",
+          "max_row": 66,
+          "max_col": 12,
+          "state": "visible"
+        }
+      ]
+    },
+    "parsed": {
+      "title": "KK机种产线巡检问题清单",
+      "primary_sheet": "抽检数据·展开",
+      "sheets": [
+        {
+          "name": "类别定义  ",
+          "kind": "lookup",
+          "row_count": 41,
+          "col_count": 5,
+          "primary": false,
+          "empty": false,
+          "formula_count": 0,
+          "formula_functions": [],
+          "cross_sheets": [],
+          "columns": [
+            "状态标识类",
+            "无状态标识",
+            "无状态标识_2",
+            "无状态标识流程卡，单独产品无状态标识，不同状态未区分放置",
+            "使用单位"
+          ],
+          "column_roles": {
+            "状态标识类": "dimension",
+            "无状态标识": "dimension",
+            "无状态标识_2": "dimension",
+            "无状态标识流程卡，单独产品无状态标识，不同状态未区分放置": "dimension",
+            "使用单位": "dimension"
+          },
+          "kpis": [
+            "记录数",
+            "状态标识类·点检类",
+            "状态标识类·错漏混",
+            "状态标识类·5S类",
+            "状态标识类·首检类"
+          ],
+          "charts": [
+            "状态标识类",
+            "按使用单位·件数"
+          ],
+          "filters": [
+            "状态标识类",
+            "无状态标识",
+            "无状态标识_2",
+            "无状态标识流程卡，单独产品无状态标识，不同状态未区分放置"
+          ],
+          "joins": [],
+          "note": "这是对照/代码表，明细表里的 VLOOKUP 会引用它。"
+        },
+        {
+          "name": "抽检数据  ",
+          "kind": "fact",
+          "row_count": 26,
+          "col_count": 187,
+          "primary": false,
+          "empty": false,
+          "formula_count": 150,
+          "formula_functions": [],
+          "cross_sheets": [],
+          "columns": [
+            "抽检状况",
+            "一群点胶-抽检数",
+            "一群点胶-不良数",
+            "一群点胶-良品数",
+            "二群点胶-抽检数",
+            "二群点胶-不良数",
+            "二群点胶-良品数",
+            "三群点胶-抽检数",
+            "三群点胶-不良数",
+            "三群点胶-良品数",
+            "四群点胶-抽检数",
+            "四群点胶-不良数",
+            "四群点胶-良品数",
+            "五群点胶-抽检数",
+            "五群点胶-不良数",
+            "五群点胶-良品数",
+            "六群点胶-抽检数",
+            "六群点胶-不良数",
+            "六群点胶-良品数",
+            "OIS上滚珠片点胶-抽检数",
+            "OIS上滚珠片点胶-不良数",
+            "OIS上滚珠片点胶-良品数",
+            "OIS下滚珠片点胶-抽检数",
+            "OIS下滚珠片点胶-不良数",
+            "OIS下滚珠片点胶-良品数",
+            "OIS线圈点胶-抽检数",
+            "OIS线圈点胶-不良数",
+            "OIS线圈点胶-良品数",
+            "OIS驱动磁石点胶-抽检数",
+            "OIS驱动磁石点胶-不良数",
+            "OIS驱动磁石点胶-良品数",
+            "OIS感应磁石点胶-抽检数",
+            "OIS感应磁石点胶-不良数",
+            "OIS感应磁石点胶-良品数",
+            "AF吸附磁石点胶-抽检数",
+            "AF吸附磁石点胶-不良数",
+            "AF吸附磁石点胶-良品数",
+            "AF线圈点胶-抽检数",
+            "AF线圈点胶-不良数",
+            "AF线圈点胶-良品数",
+            "AF贴纸-抽检数",
+            "AF贴纸-不良数",
+            "AF贴纸-良品数",
+            "AF橡胶垫点胶-抽检数",
+            "AF橡胶垫点胶-不良数",
+            "AF橡胶垫点胶-良品数",
+            "OISFPC点胶-抽检数",
+            "OISFPC点胶-不良数",
+            "OISFPC点胶-良品数",
+            "AF磁轭磁石点胶-抽检数",
+            "AF磁轭磁石点胶-不良数",
+            "AF磁轭磁石点胶-良品数",
+            "AF主副导轴涂油-抽检数",
+            "AF主副导轴涂油-不良数",
+            "AF主副导轴涂油-良品数",
+            "AF外观全点胶-抽检数",
+            "AF外观全点胶-不良数",
+            "AF外观全点胶-良品数",
+            "AF支架锁附-抽检数",
+            "AF支架锁附-不良数",
+            "AF支架锁附-良品数",
+            "AFFPC-抽检数",
+            "AFFPC-不良数",
+            "AFFPC-良品数",
+            "光圈/三群组装-抽检数",
+            "光圈/三群组装-不良数",
+            "光圈/三群组装-良品数",
+            "六群调芯点胶-抽检数",
+            "六群调芯点胶-不良数",
+            "六群调芯点胶-良品数",
+            "金属套筒点胶-抽检数",
+            "金属套筒点胶-不良数",
+            "金属套筒点胶-良品数",
+            "外观筒-抽检数",
+            "外观筒-不良数",
+            "外观筒-良品数",
+            "一群调心点胶-抽检数",
+            "一群调心点胶-不良数",
+            "一群调心点胶-良品数",
+            "尾板锁附-抽检数",
+            "尾板锁附-不良数",
+            "尾板锁附-良品数",
+            "销钉组装-抽检数",
+            "销钉组装-不良数",
+            "销钉组装-良品数",
+            "弹片点胶-抽检数",
+            "弹片点胶-不良数",
+            "弹片点胶-良品数",
+            "光机组件锁附-抽检数",
+            "光机组件锁附-不良数",
+            "光机组件锁附-良品数",
+            "驱动板锁附-抽检数",
+            "驱动板锁附-不良数",
+            "驱动板锁附-良品数",
+            "黄杨固定框锁附-抽检数",
+            "黄杨固定框锁附-不良数",
+            "黄杨固定框锁附-良品数",
+            "激光检测-抽检数",
+            "激光检测-不良品",
+            "激光检测-良品数",
+            "遮丑件组立及装配-抽检数",
+            "遮丑件组立及装配-不良品",
+            "遮丑件组立及装配-良品数",
+            "SFR三合一-抽检数",
+            "SFR三合一-不良品",
+            "SFR三合一-良品数",
+            "保护玻璃保压-抽检数",
+            "保护玻璃保压-不良品",
+            "保护玻璃保压-良品数",
+            "半成品外观检测-抽检数",
+            "半成品外观检测-不良品",
+            "半成品外观检测-良品数",
+            "性能检测标定闭环-抽检数",
+            "性能检测标定闭环-不良品",
+            "性能检测标定闭环-良品数",
+            "黄杨模组组装-抽检数",
+            "黄杨模组组装-不良品",
+            "黄杨模组组装-良品数",
+            "ZOOM标定-抽检数",
+            "ZOOM标定-不良品",
+            "ZOOM标定-良品数",
+            "一群组立-抽检数",
+            "一群组立-不良品",
+            "一群组立-良品数",
+            "合体外观检查-抽检数",
+            "合体外观检查-不良品",
+            "合体外观检查-良品数",
+            "震动测试-抽检数",
+            "震动测试-不良品",
+            "震动测试-良品数",
+            "一群固定框双面胶锁附-抽检数",
+            "一群固定框双面胶锁附-不良品",
+            "一群固定框双面胶锁附-良品数",
+            "三级筒组件-抽检数",
+            "三级筒组件-不良品",
+            "三级筒组件-良品数",
+            "AF群组件六群组件-抽检数",
+            "AF群组件六群组件-不良品",
+            "AF群组件六群组件-良品数",
+            "ZOOM固件烧录-抽检数",
+            "ZOOM固件烧录-不良品",
+            "ZOOM固件烧录-良品数",
+            "齿轮组装-抽检数",
+            "齿轮组装-不良品",
+            "齿轮组装-良品数",
+            "光机与外观筒装配-抽检数",
+            "光机与外观筒装配-不良品",
+            "光机与外观筒装配-良品数",
+            "光通量标定-抽检数",
+            "光通量标定-不良品",
+            "光通量标定-良品数",
+            "一群三颗螺帽点胶-抽检数",
+            "一群三颗螺帽点胶-不良品",
+            "一群三颗螺帽点胶-良品数",
+            "波前后外观检查-抽检数",
+            "波前后外观检查-不良品",
+            "波前后外观检查-良品数",
+            "六群组装-抽检数",
+            "六群组装-不良品",
+            "六群组装-良品数",
+            "SN码烧录-抽检数",
+            "SN码烧录-不良品",
+            "SN码烧录-良品数",
+            "暗影测试-抽检数",
+            "暗影测试-不良品",
+            "暗影测试-良品数",
+            "光圈三群组装锁附-抽检数",
+            "光圈三群组装锁附-不良品",
+            "光圈三群组装锁附-良品数",
+            "防抖件作动检测-抽检数",
+            "防抖件作动检测-不良品",
+            "防抖件作动检测-良品数",
+            "AF群组组装-抽检数",
+            "AF群组组装-不良品",
+            "AF群组组装-良品数",
+            "OTP烧录确认-抽检数",
+            "OTP烧录确认-不良品",
+            "OTP烧录确认-良品数",
+            "六群凸轮框点胶-抽检数",
+            "六群凸轮框点胶-不良品",
+            "六群凸轮框点胶-良品数",
+            "173/178点胶-抽检数",
+            "173/178点胶-不良品",
+            "173/178点胶-良品数",
+            "合体总组-抽检数",
+            "合体总组-不良品",
+            "合体总组-良品数"
+          ],
+          "column_roles": {
+            "抽检状况": "measure",
+            "一群点胶-抽检数": "measure",
+            "一群点胶-不良数": "measure",
+            "一群点胶-良品数": "measure",
+            "二群点胶-抽检数": "measure",
+            "二群点胶-不良数": "measure",
+            "二群点胶-良品数": "measure",
+            "三群点胶-抽检数": "measure",
+            "三群点胶-不良数": "measure",
+            "三群点胶-良品数": "measure",
+            "四群点胶-抽检数": "measure",
+            "四群点胶-不良数": "measure",
+            "四群点胶-良品数": "measure",
+            "五群点胶-抽检数": "measure",
+            "五群点胶-不良数": "measure",
+            "五群点胶-良品数": "measure",
+            "六群点胶-抽检数": "measure",
+            "六群点胶-不良数": "measure",
+            "六群点胶-良品数": "measure",
+            "OIS上滚珠片点胶-抽检数": "measure",
+            "OIS上滚珠片点胶-不良数": "measure",
+            "OIS上滚珠片点胶-良品数": "measure",
+            "OIS下滚珠片点胶-抽检数": "measure",
+            "OIS下滚珠片点胶-不良数": "measure",
+            "OIS下滚珠片点胶-良品数": "measure",
+            "OIS线圈点胶-抽检数": "measure",
+            "OIS线圈点胶-不良数": "measure",
+            "OIS线圈点胶-良品数": "measure",
+            "OIS驱动磁石点胶-抽检数": "measure",
+            "OIS驱动磁石点胶-不良数": "measure",
+            "OIS驱动磁石点胶-良品数": "measure",
+            "OIS感应磁石点胶-抽检数": "measure",
+            "OIS感应磁石点胶-不良数": "measure",
+            "OIS感应磁石点胶-良品数": "measure",
+            "AF吸附磁石点胶-抽检数": "measure",
+            "AF吸附磁石点胶-不良数": "measure",
+            "AF吸附磁石点胶-良品数": "measure",
+            "AF线圈点胶-抽检数": "measure",
+            "AF线圈点胶-不良数": "measure",
+            "AF线圈点胶-良品数": "measure",
+            "AF贴纸-抽检数": "measure",
+            "AF贴纸-不良数": "measure",
+            "AF贴纸-良品数": "measure",
+            "AF橡胶垫点胶-抽检数": "measure",
+            "AF橡胶垫点胶-不良数": "measure",
+            "AF橡胶垫点胶-良品数": "measure",
+            "OISFPC点胶-抽检数": "measure",
+            "OISFPC点胶-不良数": "measure",
+            "OISFPC点胶-良品数": "measure",
+            "AF磁轭磁石点胶-抽检数": "measure",
+            "AF磁轭磁石点胶-不良数": "measure",
+            "AF磁轭磁石点胶-良品数": "measure",
+            "AF主副导轴涂油-抽检数": "measure",
+            "AF主副导轴涂油-不良数": "measure",
+            "AF主副导轴涂油-良品数": "measure",
+            "AF外观全点胶-抽检数": "measure",
+            "AF外观全点胶-不良数": "measure",
+            "AF外观全点胶-良品数": "measure",
+            "AF支架锁附-抽检数": "measure",
+            "AF支架锁附-不良数": "measure",
+            "AF支架锁附-良品数": "measure",
+            "AFFPC-抽检数": "measure",
+            "AFFPC-不良数": "measure",
+            "AFFPC-良品数": "measure",
+            "光圈/三群组装-抽检数": "measure",
+            "光圈/三群组装-不良数": "measure",
+            "光圈/三群组装-良品数": "measure",
+            "六群调芯点胶-抽检数": "measure",
+            "六群调芯点胶-不良数": "measure",
+            "六群调芯点胶-良品数": "measure",
+            "金属套筒点胶-抽检数": "measure",
+            "金属套筒点胶-不良数": "measure",
+            "金属套筒点胶-良品数": "measure",
+            "外观筒-抽检数": "measure",
+            "外观筒-不良数": "measure",
+            "外观筒-良品数": "measure",
+            "一群调心点胶-抽检数": "measure",
+            "一群调心点胶-不良数": "measure",
+            "一群调心点胶-良品数": "measure",
+            "尾板锁附-抽检数": "measure",
+            "尾板锁附-不良数": "measure",
+            "尾板锁附-良品数": "measure",
+            "销钉组装-抽检数": "measure",
+            "销钉组装-不良数": "measure",
+            "销钉组装-良品数": "measure",
+            "弹片点胶-抽检数": "measure",
+            "弹片点胶-不良数": "measure",
+            "弹片点胶-良品数": "measure",
+            "光机组件锁附-抽检数": "measure",
+            "光机组件锁附-不良数": "measure",
+            "光机组件锁附-良品数": "measure",
+            "驱动板锁附-抽检数": "measure",
+            "驱动板锁附-不良数": "measure",
+            "驱动板锁附-良品数": "measure",
+            "黄杨固定框锁附-抽检数": "measure",
+            "黄杨固定框锁附-不良数": "measure",
+            "黄杨固定框锁附-良品数": "measure",
+            "激光检测-抽检数": "measure",
+            "激光检测-不良品": "measure",
+            "激光检测-良品数": "measure",
+            "遮丑件组立及装配-抽检数": "measure",
+            "遮丑件组立及装配-不良品": "measure",
+            "遮丑件组立及装配-良品数": "measure",
+            "SFR三合一-抽检数": "measure",
+            "SFR三合一-不良品": "measure",
+            "SFR三合一-良品数": "measure",
+            "保护玻璃保压-抽检数": "measure",
+            "保护玻璃保压-不良品": "measure",
+            "保护玻璃保压-良品数": "measure",
+            "半成品外观检测-抽检数": "measure",
+            "半成品外观检测-不良品": "measure",
+            "半成品外观检测-良品数": "measure",
+            "性能检测标定闭环-抽检数": "measure",
+            "性能检测标定闭环-不良品": "measure",
+            "性能检测标定闭环-良品数": "measure",
+            "黄杨模组组装-抽检数": "measure",
+            "黄杨模组组装-不良品": "measure",
+            "黄杨模组组装-良品数": "measure",
+            "ZOOM标定-抽检数": "measure",
+            "ZOOM标定-不良品": "measure",
+            "ZOOM标定-良品数": "measure",
+            "一群组立-抽检数": "measure",
+            "一群组立-不良品": "measure",
+            "一群组立-良品数": "measure",
+            "合体外观检查-抽检数": "measure",
+            "合体外观检查-不良品": "measure",
+            "合体外观检查-良品数": "measure",
+            "震动测试-抽检数": "measure",
+            "震动测试-不良品": "measure",
+            "震动测试-良品数": "measure",
+            "一群固定框双面胶锁附-抽检数": "measure",
+            "一群固定框双面胶锁附-不良品": "measure",
+            "一群固定框双面胶锁附-良品数": "measure",
+            "三级筒组件-抽检数": "measure",
+            "三级筒组件-不良品": "measure",
+            "三级筒组件-良品数": "measure",
+            "AF群组件六群组件-抽检数": "measure",
+            "AF群组件六群组件-不良品": "measure",
+            "AF群组件六群组件-良品数": "measure",
+            "ZOOM固件烧录-抽检数": "measure",
+            "ZOOM固件烧录-不良品": "measure",
+            "ZOOM固件烧录-良品数": "measure",
+            "齿轮组装-抽检数": "measure",
+            "齿轮组装-不良品": "measure",
+            "齿轮组装-良品数": "measure",
+            "光机与外观筒装配-抽检数": "measure",
+            "光机与外观筒装配-不良品": "measure",
+            "光机与外观筒装配-良品数": "measure",
+            "光通量标定-抽检数": "measure",
+            "光通量标定-不良品": "measure",
+            "光通量标定-良品数": "measure",
+            "一群三颗螺帽点胶-抽检数": "measure",
+            "一群三颗螺帽点胶-不良品": "measure",
+            "一群三颗螺帽点胶-良品数": "measure",
+            "波前后外观检查-抽检数": "measure",
+            "波前后外观检查-不良品": "measure",
+            "波前后外观检查-良品数": "measure",
+            "六群组装-抽检数": "measure",
+            "六群组装-不良品": "measure",
+            "六群组装-良品数": "measure",
+            "SN码烧录-抽检数": "measure",
+            "SN码烧录-不良品": "measure",
+            "SN码烧录-良品数": "measure",
+            "暗影测试-抽检数": "measure",
+            "暗影测试-不良品": "measure",
+            "暗影测试-良品数": "measure",
+            "光圈三群组装锁附-抽检数": "measure",
+            "光圈三群组装锁附-不良品": "measure",
+            "光圈三群组装锁附-良品数": "measure",
+            "防抖件作动检测-抽检数": "measure",
+            "防抖件作动检测-不良品": "measure",
+            "防抖件作动检测-良品数": "measure",
+            "AF群组组装-抽检数": "measure",
+            "AF群组组装-不良品": "measure",
+            "AF群组组装-良品数": "measure",
+            "OTP烧录确认-抽检数": "measure",
+            "OTP烧录确认-不良品": "measure",
+            "OTP烧录确认-良品数": "measure",
+            "六群凸轮框点胶-抽检数": "measure",
+            "六群凸轮框点胶-不良品": "measure",
+            "六群凸轮框点胶-良品数": "measure",
+            "173/178点胶-抽检数": "measure",
+            "173/178点胶-不良品": "measure",
+            "173/178点胶-良品数": "measure",
+            "合体总组-抽检数": "measure",
+            "合体总组-不良品": "measure",
+            "合体总组-良品数": "measure"
+          },
+          "kpis": [
+            "记录数",
+            "抽检状况合计",
+            "一群点胶-抽检数合计",
+            "一群点胶-良品数合计",
+            "二群点胶-抽检数合计",
+            "二群点胶-良品数合计",
+            "三群点胶-抽检数合计",
+            "三群点胶-良品数合计"
+          ],
+          "charts": [],
+          "filters": [],
+          "joins": [],
+          "note": null
+        },
+        {
+          "name": "问题清单 ",
+          "kind": "empty",
+          "row_count": 0,
+          "col_count": 19,
+          "primary": false,
+          "empty": true,
+          "formula_count": 0,
+          "formula_functions": [],
+          "cross_sheets": [],
+          "columns": [
+            "序号",
+            "日期",
+            "月份",
+            "模块",
+            "工位",
+            "问题点描述",
+            "类别",
+            "分类",
+            "人-张程亮",
+            "机-陈刚",
+            "料-王岩良",
+            "法（QCP/SOP）",
+            "环境-刘焕良",
+            "责任单位",
+            "确认人",
+            "工段负责人",
+            "巡检人",
+            "是否结案",
+            "逾期天数"
+          ],
+          "column_roles": {
+            "序号": "empty",
+            "日期": "empty",
+            "月份": "empty",
+            "模块": "empty",
+            "工位": "empty",
+            "问题点描述": "empty",
+            "类别": "empty",
+            "分类": "empty",
+            "人-张程亮": "empty",
+            "机-陈刚": "empty",
+            "料-王岩良": "empty",
+            "法（QCP/SOP）": "empty",
+            "环境-刘焕良": "empty",
+            "责任单位": "empty",
+            "确认人": "empty",
+            "工段负责人": "empty",
+            "巡检人": "empty",
+            "是否结案": "empty",
+            "逾期天数": "empty"
+          },
+          "kpis": [],
+          "charts": [],
+          "filters": [],
+          "joins": [],
+          "note": "此表只有表头、没有明细数据（常见于 WPS 未把值写入单元格）。已保留列结构和其它表上的公式关系。"
+        },
+        {
+          "name": "问题点-趋势图",
+          "kind": "dashboard",
+          "row_count": 40,
+          "col_count": 16,
+          "primary": false,
+          "empty": false,
+          "formula_count": 142,
+          "formula_functions": [
+            {
+              "name": "COUNTIFS",
+              "count": 49
+            },
+            {
+              "name": "COUNTIF",
+              "count": 24
+            },
+            {
+              "name": "SUM",
+              "count": 15
+            }
+          ],
+          "cross_sheets": [
+            "问题清单"
+          ],
+          "columns": [
+            "列A",
+            "列B",
+            "责任单位",
+            "类别",
+            "7月",
+            "8月",
+            "46249",
+            "TTL",
+            "Trend",
+            "列J",
+            "5M",
+            "8/15问题件数",
+            "列M",
+            "列N",
+            "未戴静电手环/未规范戴静电手环",
+            "7"
+          ],
+          "column_roles": {
+            "列A": "empty",
+            "列B": "empty",
+            "责任单位": "dimension",
+            "类别": "dimension",
+            "7月": "measure",
+            "8月": "measure",
+            "46249": "measure",
+            "TTL": "measure",
+            "Trend": "empty",
+            "列J": "empty",
+            "5M": "dimension",
+            "8/15问题件数": "measure",
+            "列M": "empty",
+            "列N": "empty",
+            "未戴静电手环/未规范戴静电手环": "dimension",
+            "7": "measure"
+          },
+          "kpis": [
+            "记录数",
+            "7合计"
+          ],
+          "charts": [
+            "按类别·件数",
+            "按5M·件数",
+            "按未戴静电手环/未规范戴静电手环·件数"
+          ],
+          "filters": [
+            "责任单位",
+            "类别",
+            "5M",
+            "未戴静电手环/未规范戴静电手环"
+          ],
+          "joins": [],
+          "note": "这是汇总看板表，数字多半由 COUNTIF / SUMIF 从明细表算出来。"
+        },
+        {
+          "name": "Sheet5",
+          "kind": "hidden",
+          "row_count": 1,
+          "col_count": 5,
+          "primary": false,
+          "empty": false,
+          "formula_count": 0,
+          "formula_functions": [],
+          "cross_sheets": [],
+          "columns": [
+            "求和项:人-张程亮",
+            "求和项:机（B）-陈刚",
+            "求和项:料-王岩良",
+            "求和项:法（QCP/SOP）",
+            "求和项:环境-刘焕良"
+          ],
+          "column_roles": {
+            "求和项:人-张程亮": "measure",
+            "求和项:机（B）-陈刚": "measure",
+            "求和项:料-王岩良": "measure",
+            "求和项:法（QCP/SOP）": "measure",
+            "求和项:环境-刘焕良": "measure"
+          },
+          "kpis": [
+            "记录数"
+          ],
+          "charts": [],
+          "filters": [],
+          "joins": [],
+          "note": null
+        },
+        {
+          "name": "代码",
+          "kind": "lookup",
+          "row_count": 65,
+          "col_count": 12,
+          "primary": false,
+          "empty": false,
+          "formula_count": 64,
+          "formula_functions": [
+            {
+              "name": "ROW",
+              "count": 64
+            }
+          ],
+          "cross_sheets": [],
+          "columns": [
+            "列A",
+            "序号",
+            "分类",
+            "类别",
+            "列E",
+            "列F",
+            "列G",
+            "列H",
+            "列I",
+            "列J",
+            "模块",
+            "负责人"
+          ],
+          "column_roles": {
+            "列A": "empty",
+            "序号": "id",
+            "分类": "dimension",
+            "类别": "dimension",
+            "列E": "empty",
+            "列F": "empty",
+            "列G": "empty",
+            "列H": "empty",
+            "列I": "empty",
+            "列J": "empty",
+            "模块": "dimension",
+            "负责人": "dimension"
+          },
+          "kpis": [
+            "记录数"
+          ],
+          "charts": [
+            "按类别·件数",
+            "按模块·件数",
+            "按负责人·件数"
+          ],
+          "filters": [
+            "类别",
+            "模块",
+            "负责人"
+          ],
+          "joins": [],
+          "note": "这是对照/代码表，明细表里的 VLOOKUP 会引用它。"
+        },
+        {
+          "name": "抽检数据·展开",
+          "kind": "fact",
+          "row_count": 926,
+          "col_count": 6,
+          "primary": true,
+          "empty": false,
+          "formula_count": 0,
+          "formula_functions": [],
+          "cross_sheets": [],
+          "columns": [
+            "批次",
+            "工位",
+            "抽检数",
+            "不良数",
+            "良品数",
+            "不良品"
+          ],
+          "column_roles": {
+            "批次": "dimension",
+            "工位": "dimension",
+            "抽检数": "measure",
+            "不良数": "measure",
+            "良品数": "measure",
+            "不良品": "measure"
+          },
+          "kpis": [
+            "记录数",
+            "抽检数合计",
+            "良品数合计",
+            "不良品合计"
+          ],
+          "charts": [
+            "按批次计数"
+          ],
+          "filters": [
+            "批次"
+          ],
+          "joins": [],
+          "note": "由「抽检数据」的工位列自动展开（抽检数 / 不良数 / 良品数）。"
+        }
+      ],
+      "smart_view": {
+        "has_recommendations": false,
+        "main_sheets": [
+          {
+            "name": "抽检数据  ",
+            "row_count": 26,
+            "col_count": 187,
+            "reason": "主要数据表"
+          },
+          {
+            "name": "抽检数据·展开",
+            "row_count": 926,
+            "col_count": 6,
+            "reason": "主要数据表"
+          }
+        ],
+        "lookup_sheets": [
+          {
+            "name": "类别定义  ",
+            "row_count": 41,
+            "referenced_by": [],
+            "reason": "配置/对照表（被其他表引用）"
+          },
+          {
+            "name": "代码",
+            "row_count": 65,
+            "referenced_by": [],
+            "reason": "配置/对照表（被其他表引用）"
+          }
+        ],
+        "dashboard_sheets": [
+          {
+            "name": "问题点-趋势图",
+            "kind": "dashboard",
+            "reason": "仪表板/说明"
+          }
+        ],
+        "recommendations": [],
+        "hide_suggestions": [],
+        "summary": "检测到 2 个主数据表，2 个配置/对照表，暂无整合建议。"
+      }
+    }
+  },
+  {
+    "file": "变焦产品抽检记录表2026年8月.xlsx",
+    "raw": {
+      "file": "变焦产品抽检记录表2026年8月.xlsx",
+      "sheets": [
+        {
+          "name": "OQC 抽检批次合格率表格",
+          "max_row": 1041308,
+          "max_col": 33,
+          "state": "visible"
+        },
+        {
+          "name": "首页",
+          "max_row": 93,
+          "max_col": 35,
+          "state": "visible"
+        },
+        {
+          "name": "代码",
+          "max_row": 187,
+          "max_col": 16,
+          "state": "visible"
+        }
+      ]
+    },
+    "parsed": {
+      "title": "变焦产品抽检记录表2026年8月",
+      "primary_sheet": "OQC 抽检批次合格率表格",
+      "sheets": [
+        {
+          "name": "OQC 抽检批次合格率表格",
+          "kind": "fact",
+          "row_count": 459,
+          "col_count": 33,
+          "primary": true,
+          "empty": false,
+          "formula_count": 4596,
+          "formula_functions": [
+            {
+              "name": "VLOOKUP",
+              "count": 1836
+            },
+            {
+              "name": "IF",
+              "count": 1833
+            },
+            {
+              "name": "IFERROR",
+              "count": 459
+            },
+            {
+              "name": "LEFT",
+              "count": 459
+            },
+            {
+              "name": "FIND",
+              "count": 459
+            }
+          ],
+          "cross_sheets": [
+            "代码"
+          ],
+          "columns": [
+            "日期",
+            "月份",
+            "时间段",
+            "送检类型",
+            "机种",
+            "系列",
+            "送检单位",
+            "送检数量",
+            "外观抽检数量",
+            "机能抽检数量",
+            "不良数量",
+            "不良率",
+            "抽检批",
+            "合格批",
+            "合格批率",
+            "判定",
+            "确认者",
+            "课室负责人",
+            "不良位置",
+            "不良代码",
+            "现象",
+            "数量",
+            "同批送检次数",
+            "是否紧急出货",
+            "层别备注",
+            "单据类型",
+            "OA单号",
+            "结案日期",
+            "结案天数",
+            "责任单位",
+            "责任课级负责人",
+            "品质工程师",
+            "判定_2"
+          ],
+          "column_roles": {
+            "日期": "date",
+            "月份": "measure",
+            "时间段": "dimension",
+            "送检类型": "dimension",
+            "机种": "dimension",
+            "系列": "dimension",
+            "送检单位": "dimension",
+            "送检数量": "measure",
+            "外观抽检数量": "measure",
+            "机能抽检数量": "measure",
+            "不良数量": "measure",
+            "不良率": "measure",
+            "抽检批": "measure",
+            "合格批": "measure",
+            "合格批率": "measure",
+            "判定": "dimension",
+            "确认者": "dimension",
+            "课室负责人": "dimension",
+            "不良位置": "dimension",
+            "不良代码": "dimension",
+            "现象": "dimension",
+            "数量": "measure",
+            "同批送检次数": "empty",
+            "是否紧急出货": "empty",
+            "层别备注": "empty",
+            "单据类型": "empty",
+            "OA单号": "empty",
+            "结案日期": "empty",
+            "结案天数": "empty",
+            "责任单位": "empty",
+            "责任课级负责人": "empty",
+            "品质工程师": "empty",
+            "判定_2": "empty"
+          },
+          "kpis": [
+            "记录数",
+            "判定·OK",
+            "判定·NG",
+            "判定·[NG]",
+            "判定结案/合格率",
+            "送检数量合计",
+            "外观抽检数量合计",
+            "机能抽检数量合计"
+          ],
+          "charts": [
+            "不良率按日期",
+            "判定",
+            "按时间段·送检数量",
+            "按送检类型·送检数量"
+          ],
+          "filters": [
+            "日期",
+            "时间段",
+            "送检类型",
+            "送检单位",
+            "判定",
+            "确认者"
+          ],
+          "joins": [
+            {
+              "from_sheet": "OQC 抽检批次合格率表格",
+              "from_field": "系列",
+              "to_sheet": "代码",
+              "to_field": "第8列",
+              "result_field": "送检单位",
+              "via": "VLOOKUP",
+              "table": "代码!H:I"
+            },
+            {
+              "from_sheet": "OQC 抽检批次合格率表格",
+              "from_field": "系列",
+              "to_sheet": "代码",
+              "to_field": "第12列",
+              "result_field": "确认者",
+              "via": "VLOOKUP",
+              "table": "代码!L:M"
+            },
+            {
+              "from_sheet": "OQC 抽检批次合格率表格",
+              "from_field": "送检单位",
+              "to_sheet": "代码",
+              "to_field": "第15列",
+              "result_field": "课室负责人",
+              "via": "VLOOKUP",
+              "table": "代码!O:P"
+            },
+            {
+              "from_sheet": "OQC 抽检批次合格率表格",
+              "from_field": "不良代码",
+              "to_sheet": "代码",
+              "to_field": "第2列",
+              "result_field": "现象",
+              "via": "VLOOKUP",
+              "table": "代码!B:C"
+            }
+          ],
+          "note": null
+        },
+        {
+          "name": "首页",
+          "kind": "fact",
+          "row_count": 15,
+          "col_count": 35,
+          "primary": false,
+          "empty": false,
+          "formula_count": 232,
+          "formula_functions": [
+            {
+              "name": "IFERROR",
+              "count": 155
+            },
+            {
+              "name": "SUM",
+              "count": 8
+            }
+          ],
+          "cross_sheets": [],
+          "columns": [
+            "列A",
+            "列B",
+            "列C",
+            "1日",
+            "2日",
+            "3日",
+            "4日",
+            "5日",
+            "6日",
+            "7日",
+            "8日",
+            "9日",
+            "10日",
+            "11日",
+            "12日",
+            "13日",
+            "14日",
+            "15日",
+            "16日",
+            "17日",
+            "18日",
+            "19日",
+            "20日",
+            "21日",
+            "22日",
+            "23日",
+            "24日",
+            "25日",
+            "26日",
+            "27日",
+            "28日",
+            "29日",
+            "30日",
+            "31日",
+            "TTL"
+          ],
+          "column_roles": {
+            "列A": "empty",
+            "列B": "dimension",
+            "列C": "dimension",
+            "1日": "measure",
+            "2日": "measure",
+            "3日": "measure",
+            "4日": "measure",
+            "5日": "measure",
+            "6日": "measure",
+            "7日": "measure",
+            "8日": "measure",
+            "9日": "measure",
+            "10日": "measure",
+            "11日": "measure",
+            "12日": "measure",
+            "13日": "measure",
+            "14日": "measure",
+            "15日": "measure",
+            "16日": "measure",
+            "17日": "measure",
+            "18日": "measure",
+            "19日": "measure",
+            "20日": "measure",
+            "21日": "measure",
+            "22日": "measure",
+            "23日": "measure",
+            "24日": "measure",
+            "25日": "measure",
+            "26日": "measure",
+            "27日": "measure",
+            "28日": "measure",
+            "29日": "measure",
+            "30日": "measure",
+            "31日": "measure",
+            "TTL": "measure"
+          },
+          "kpis": [
+            "记录数",
+            "1日合计",
+            "3日合计",
+            "4日合计",
+            "5日合计",
+            "6日合计",
+            "7日合计",
+            "8日合计"
+          ],
+          "charts": [
+            "按列B·件数",
+            "按列C·件数"
+          ],
+          "filters": [
+            "列B",
+            "列C"
+          ],
+          "joins": [],
+          "note": null
+        },
+        {
+          "name": "代码",
+          "kind": "lookup",
+          "row_count": 179,
+          "col_count": 16,
+          "primary": false,
+          "empty": false,
+          "formula_count": 0,
+          "formula_functions": [],
+          "cross_sheets": [],
+          "columns": [
+            "NO.",
+            "代码",
+            "不良描述",
+            "大类",
+            "列E",
+            "列F",
+            "列G",
+            "机种",
+            "课室",
+            "列J",
+            "列K",
+            "机种_2",
+            "负责人",
+            "列N",
+            "课室_2",
+            "课室负责人"
+          ],
+          "column_roles": {
+            "NO.": "measure",
+            "代码": "text",
+            "不良描述": "text",
+            "大类": "dimension",
+            "列E": "empty",
+            "列F": "empty",
+            "列G": "empty",
+            "机种": "dimension",
+            "课室": "dimension",
+            "列J": "empty",
+            "列K": "empty",
+            "机种_2": "dimension",
+            "负责人": "dimension",
+            "列N": "empty",
+            "课室_2": "dimension",
+            "课室负责人": "dimension"
+          },
+          "kpis": [
+            "记录数",
+            "NO.合计"
+          ],
+          "charts": [
+            "按课室·件数",
+            "按课室_2·件数",
+            "按课室负责人·件数"
+          ],
+          "filters": [
+            "大类",
+            "课室",
+            "负责人",
+            "课室_2",
+            "课室负责人"
+          ],
+          "joins": [],
+          "note": "这是对照/代码表，明细表里的 VLOOKUP 会引用它。"
+        }
+      ],
+      "smart_view": {
+        "has_recommendations": true,
+        "main_sheets": [
+          {
+            "name": "OQC 抽检批次合格率表格",
+            "row_count": 459,
+            "col_count": 33,
+            "reason": "主要数据表"
+          }
+        ],
+        "lookup_sheets": [
+          {
+            "name": "代码",
+            "row_count": 179,
+            "referenced_by": [
+              "OQC 抽检批次合格率表格",
+              "OQC 抽检批次合格率表格",
+              "OQC 抽检批次合格率表格",
+              "OQC 抽检批次合格率表格"
+            ],
+            "reason": "配置/对照表（被其他表引用）"
+          }
+        ],
+        "dashboard_sheets": [],
+        "recommendations": [
+          {
+            "type": "integrate",
+            "main_sheet": "OQC 抽检批次合格率表格",
+            "lookup_sheets": [
+              "代码"
+            ],
+            "field_mappings": [
+              {
+                "lookup_sheet": "代码",
+                "main_col": "送检单位",
+                "main_key_col": "系列",
+                "lookup_key_col": "机种",
+                "via": "VLOOKUP"
+              },
+              {
+                "lookup_sheet": "代码",
+                "main_col": "确认者",
+                "main_key_col": "系列",
+                "lookup_key_col": "机种_2",
+                "via": "VLOOKUP"
+              },
+              {
+                "lookup_sheet": "代码",
+                "main_col": "课室负责人",
+                "main_key_col": "送检单位",
+                "lookup_key_col": "课室_2",
+                "via": "VLOOKUP"
+              },
+              {
+                "lookup_sheet": "代码",
+                "main_col": "现象",
+                "main_key_col": "不良代码",
+                "lookup_key_col": "代码",
+                "via": "VLOOKUP"
+              }
+            ],
+            "description": "将 OQC 抽检批次合格率表格 与 1 个配置表整合",
+            "details": [
+              {
+                "lookup_name": "代码",
+                "field": "系列",
+                "via": "VLOOKUP"
+              }
+            ],
+            "benefit": "配置表作为下拉选项，无需单独页面"
+          }
+        ],
+        "hide_suggestions": [
+          {
+            "sheet_name": "代码",
+            "reason": "被 OQC 抽检批次合格率表格, OQC 抽检批次合格率表格 等引用，可作为内嵌选项"
+          }
+        ],
+        "summary": "检测到 1 个主数据表，1 个配置/对照表，建议 1 个整合方案。"
+      }
+    }
+  }
+]
