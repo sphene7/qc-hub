@@ -9,7 +9,7 @@
   />
 
   <!-- Main app content -->
-  <div v-else class="page" :class="{ 'page-wide': view === 'project' && hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes') }">
+  <div v-else class="page" :class="{ 'page-wide': view === 'project' && hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'oa_fill' || projectView === 'closed_loop') }">
     <!-- 全局上传/分析加载 -->
     <div v-if="uploading" class="global-loading">
       <div class="loading-box">
@@ -68,7 +68,7 @@
     />
 
     <!-- Project Detail View (existing stats/entry) -->
-    <main v-else-if="view === 'project' && spec" class="workspace" :class="{ 'workspace-wide': hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes') }">
+    <main v-else-if="view === 'project' && spec" class="workspace" :class="{ 'workspace-wide': hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'oa_fill' || projectView === 'closed_loop') }">
       <div class="title-row">
         <h1>{{ spec.title }}</h1>
         <span class="pill">{{ spec.filename }}</span>
@@ -197,6 +197,23 @@
         :spec="spec"
         :can-edit="canEditCodeTable"
         @updated="onCodeTableUpdated"
+      />
+
+      <!-- OQC：步骤② OA 单号补录 -->
+      <OaSupplementView
+        v-if="hasAiDashboard && projectView === 'oa_fill' && isOqcProject"
+        :workbook-id="workbookId"
+        :sheet="spec.dashboard_design?.main_table?.sheet"
+        :can-update="projectPermissions.update"
+      />
+
+      <!-- OQC：步骤③ 闭环分析 -->
+      <ClosedLoopView
+        v-if="hasAiDashboard && projectView === 'closed_loop' && isOqcProject"
+        :workbook-id="workbookId"
+        :sheet="spec.dashboard_design?.main_table?.sheet"
+        :spec="spec"
+        :can-update="projectPermissions.update"
       />
 
       <!-- 无 AI 看板 / 原始分表模式 -->
@@ -366,6 +383,8 @@ import SmartDashboard from "./SmartDashboard.vue";
 import ComplaintAnalyticsView from "./ComplaintAnalyticsView.vue";
 import InspectionAnalyticsView from "./InspectionAnalyticsView.vue";
 import OqcAnalyticsView from "./OqcAnalyticsView.vue";
+import OaSupplementView from "./OaSupplementView.vue";
+import ClosedLoopView from "./ClosedLoopView.vue";
 import AbnormalMonitorView from "./AbnormalMonitorView.vue";
 import SamplingDataView from "./SamplingDataView.vue";
 import CodeTableView from "./CodeTableView.vue";
@@ -515,9 +534,23 @@ const isOqcProject = computed(() => {
   );
 });
 
+const isKnownBusinessProject = computed(
+  () => isComplaintProject.value || isInspectionProject.value || isOqcProject.value,
+);
+
+const hasMultipleWorkbookSheets = computed(() => (spec.value?.sheets?.length || 0) > 1);
+
+/** 多 sheet 的非标准业务表（如 DQA 报告）仍应能切换各工作表 */
+const showWorkbookSheetsNav = computed(
+  () =>
+    showRawSheets.value ||
+    (hasMultipleWorkbookSheets.value && hasAiDashboard.value && !isKnownBusinessProject.value),
+);
+
 const dashboardNavLabel = computed(() => {
   if (isOqcProject.value) return '抽检明细';
   if (isComplaintProject.value) return '客诉明细';
+  if (hasAiDashboard.value && !isKnownBusinessProject.value) return '主表';
   return '问题清单';
 });
 
@@ -557,9 +590,15 @@ const visibleNavItems = computed(() =>
   buildVisibleNavItems(projectModuleKey.value, currentNavOrder.value, {
     dashboard: { key: "dashboard", label: dashboardNavLabel.value, show: hasAiDashboard.value },
     sampling: { key: "sampling", label: "抽检数据", show: hasSamplingSheet.value },
+    oa_fill: { key: "oa_fill", label: "OA补录", show: hasAiDashboard.value && isOqcProject.value },
+    closed_loop: {
+      key: "closed_loop",
+      label: "闭环分析",
+      show: hasAiDashboard.value && isOqcProject.value,
+    },
     analytics: { key: "analytics", label: "趋势分析", show: hasAnalyticsView.value },
     codes: { key: "codes", label: "类别管理", show: hasCodeSheet.value },
-    sheets: { key: "sheets", label: "原始分表", show: showRawSheets.value },
+    sheets: { key: "sheets", label: "原始分表", show: showWorkbookSheetsNav.value },
   }),
 );
 
@@ -697,7 +736,7 @@ async function loadSystemInfo() {
 
 async function onAdminSettingsUpdated() {
   await loadSystemInfo();
-  if (!showRawSheets.value && projectView.value === 'sheets' && workbookId.value) {
+  if (!showWorkbookSheetsNav.value && projectView.value === 'sheets' && workbookId.value) {
     switchProjectView('dashboard');
   }
 }
@@ -805,7 +844,12 @@ async function syncFromRoute() {
       if (tab === "dashboard" && route.name === "project-layout" && layout) {
         applyLegacyEntryPanelHint(wid, layout);
       }
-      if (tab === "sheets" && !showRawSheets.value) {
+
+      if (wid !== workbookId.value || !spec.value) {
+        await loadProject(wid);
+      }
+
+      if (tab === "sheets" && !showWorkbookSheetsNav.value) {
         await router.replace(projectPath(wid, "dashboard"));
         projectView.value = "dashboard";
       } else {
@@ -813,10 +857,6 @@ async function syncFromRoute() {
         if (tab === "dashboard" && layout && route.name === "project-layout") {
           await router.replace(projectPath(wid, "dashboard"));
         }
-      }
-
-      if (wid !== workbookId.value || !spec.value) {
-        await loadProject(wid);
       }
 
       if (!hasAiDashboard.value && tab === "dashboard") {
@@ -1099,7 +1139,7 @@ function onPageSizeChange() {
 
 function switchProjectView(v) {
   if (!workbookId.value) return;
-  if (v === 'sheets' && !showRawSheets.value) {
+  if (v === 'sheets' && !showWorkbookSheetsNav.value) {
     v = 'dashboard';
   }
   if (v === 'analytics' && !hasAnalyticsView.value) {

@@ -10,6 +10,7 @@ import pandas as pd
 
 from .formulas import col_letters_to_index
 from .logutil import log
+from .module_blueprints import SAMPLING_DEFERRED_FORM_COLUMNS, SAMPLING_RETIRED_COLUMNS
 from .semantics import ID_HINTS, SKIP_DIM, STATUS_HINTS, page_rows
 
 CELL_RE = re.compile(r"(?<![A-Za-z0-9_])(\$?[A-Z]{1,3})(\$?\d+)\b", re.I)
@@ -20,20 +21,40 @@ RICH_TEXT_IMAGE_FIELDS = frozenset({"内部未结案待跟进事项"})
 # OQC 主表：Excel 有列但解析为 empty 的仍可录入字段
 OQC_MANUAL_FIELDS: dict[str, str] = {
     "同批送检次数": "measure",
-    "是否紧急出货": "dimension",
-    "层别备注": "text",
+    "不良属性": "dimension",
     "单据类型": "dimension",
     "OA单号": "text",
-    "结案日期": "date",
-    "结案天数": "measure",
+    "检验员": "dimension",
+    "指定质控公司": "dimension",
+    "临时对策": "text",
+    "根因分析": "text",
+    "永久对策": "text",
+    "改善后确认": "text",
     "责任单位": "dimension",
+    "责任人": "dimension",
     "责任课级负责人": "dimension",
     "品质工程师": "dimension",
+    "结案日期": "date",
+    "结案天数": "measure",
     "判定_2": "dimension",
 }
 
-# OQC 录入表单不展示的列（表中可保留）
-OQC_FORM_SKIP_FIELDS = frozenset({"是否结案"})
+# 抽检「登记」表单跳过 = 已退役 + 延后到 OA/闭环 + 系统态（与列表同源）
+OQC_FORM_SKIP_FIELDS = (
+    frozenset({"是否结案"})
+    | SAMPLING_RETIRED_COLUMNS
+    | SAMPLING_DEFERRED_FORM_COLUMNS
+)
+
+# 前端用「多组位置+现象+数量+检验员」统一录入的字段
+OQC_DEFECT_GROUP_KEYS = frozenset({"不良位置", "现象", "数量", "检验员"})
+
+# 富文本（可插图）闭环字段
+OQC_RICH_CLOSE_KEYS = frozenset({"根因分析", "改善后确认", "临时对策", "永久对策"})
+
+OQC_DEFECT_ATTR_OPTIONS = ("外观不良", "性能不良")
+OQC_DEFECT_SEP = "；"
+_OQC_DEFECT_SPLIT_RE = re.compile(r"[;；|｜/／\n]+")
 
 
 def _is_oqc_entry_sheet(sheet: dict[str, Any]) -> bool:
@@ -41,9 +62,167 @@ def _is_oqc_entry_sheet(sheet: dict[str, Any]) -> bool:
     return "OQC" in name or "抽检批次" in name
 
 
+def is_oqc_ng_label(val: Any) -> bool:
+    s = str(val or "").strip().upper()
+    if not s:
+        return False
+    if s == "NG" or s.startswith("[NG]"):
+        return True
+    return bool(re.match(r"^NG\s*[×X*]", s))
+
+
+def format_oqc_judge(*, is_ng: bool, defect_type_count: int = 1) -> str:
+    if not is_ng:
+        return "OK"
+    n = max(1, int(defect_type_count or 1))
+    return "NG" if n <= 1 else f"NG×{n}"
+
+
+def split_oqc_defect_parts(val: Any) -> list[str]:
+    s = str(val or "").strip()
+    if not s or s.lower() in {"nan", "none", "nat"}:
+        return []
+    return [p.strip() for p in _OQC_DEFECT_SPLIT_RE.split(s) if p.strip()]
+
+
+def parse_oqc_defect_groups(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Parse 不良位置 / 现象 / 数量 / 检验员 joined by ； into group dicts."""
+    locs = split_oqc_defect_parts(row.get("不良位置"))
+    phens = split_oqc_defect_parts(row.get("现象"))
+    qtys = split_oqc_defect_parts(row.get("数量"))
+    inspectors = split_oqc_defect_parts(row.get("检验员"))
+    n = max(len(locs), len(phens), len(qtys), len(inspectors))
+    if n == 0:
+        return []
+    groups: list[dict[str, Any]] = []
+    for i in range(n):
+        loc = locs[i] if i < len(locs) else ""
+        phen = phens[i] if i < len(phens) else ""
+        qty = qtys[i] if i < len(qtys) else ""
+        inspector = inspectors[i] if i < len(inspectors) else ""
+        if not loc and not phen and qty == "" and not inspector:
+            continue
+        groups.append({"location": loc, "phenomenon": phen, "qty": qty, "inspector": inspector})
+    return groups
+
+
+def serialize_oqc_defect_groups(groups: list[dict[str, Any]]) -> dict[str, Any]:
+    filled = []
+    for g in groups or []:
+        loc = str(g.get("location") or "").strip()
+        phen = str(g.get("phenomenon") or "").strip()
+        inspector = str(g.get("inspector") or "").strip()
+        qty_raw = g.get("qty")
+        qty = "" if qty_raw is None or qty_raw == "" else str(qty_raw).strip()
+        if not loc and not phen and not qty and not inspector:
+            continue
+        filled.append({"location": loc, "phenomenon": phen, "qty": qty, "inspector": inspector})
+    if not filled:
+        return {
+            "不良位置": None,
+            "现象": None,
+            "数量": None,
+            "不良数量": None,
+            "不良代码": None,
+            "检验员": None,
+        }
+    total = 0.0
+    has_qty = False
+    for g in filled:
+        if g["qty"] == "":
+            continue
+        try:
+            total += float(g["qty"])
+            has_qty = True
+        except (TypeError, ValueError):
+            pass
+    return {
+        "不良位置": OQC_DEFECT_SEP.join(g["location"] for g in filled),
+        "现象": OQC_DEFECT_SEP.join(g["phenomenon"] for g in filled),
+        "数量": OQC_DEFECT_SEP.join(g["qty"] for g in filled),
+        "检验员": OQC_DEFECT_SEP.join(g["inspector"] for g in filled),
+        "不良数量": int(total) if has_qty and total == int(total) else (total if has_qty else None),
+        "不良代码": None,
+    }
+
+
+def apply_oqc_close_days(row: dict[str, Any], sheet: dict[str, Any]) -> None:
+    """结案天数 = 结案日期 − 抽检日期（自动）。"""
+    if not _is_oqc_entry_sheet(sheet):
+        return
+    keys = {c.get("key") for c in (sheet.get("columns") or []) if c.get("key")}
+    if "结案天数" not in keys:
+        return
+    close_d = _parse_row_date(row.get("结案日期"))
+    start_d = _parse_row_date(row.get("日期"))
+    if close_d and start_d:
+        row["结案天数"] = max(0, (close_d - start_d).days)
+    elif not close_d:
+        # 未结案时不强制写 0，避免覆盖空值语义
+        if row.get("结案天数") in (None, ""):
+            row["结案天数"] = None
+
+
+def _oqc_defect_type_count(row: dict[str, Any], judge: str) -> int:
+    """Prefer multi-group count; fall back to NG×N / legacy [NG]."""
+    groups = parse_oqc_defect_groups(row)
+    if groups:
+        return len(groups)
+    m = re.match(r"^NG\s*[×xX*]\s*(\d+)$", str(judge or "").strip(), re.I)
+    if m:
+        return max(1, int(m.group(1)))
+    if str(judge or "").strip().upper().startswith("[NG]"):
+        return 2
+    return 1
+
+
+def apply_oqc_defect_totals(row: dict[str, Any], sheet: dict[str, Any]) -> None:
+    """Join-normalize defect groups and fill 不良数量; clear 不良代码."""
+    if not _is_oqc_entry_sheet(sheet):
+        return
+    keys = {c.get("key") for c in (sheet.get("columns") or []) if c.get("key")}
+    groups = parse_oqc_defect_groups(row)
+    if not groups:
+        if "不良代码" in keys:
+            row["不良代码"] = None
+        return
+    serialized = serialize_oqc_defect_groups(groups)
+    for key, val in serialized.items():
+        if key in keys or key in {"不良位置", "现象", "数量"}:
+            row[key] = val
+
+
+def apply_oqc_judge(row: dict[str, Any], sheet: dict[str, Any]) -> None:
+    """Normalize OQC 判定 to OK / NG / NG×N (replace legacy [NG])."""
+    if not _is_oqc_entry_sheet(sheet):
+        return
+    if "判定" not in row and "判定_2" not in row:
+        return
+
+    judge2 = str(row.get("判定_2") or "").strip().upper()
+    judge = str(row.get("判定") or "").strip()
+    n = _oqc_defect_type_count(row, judge)
+
+    if judge2 == "OK":
+        row["判定"] = "OK"
+        return
+    if judge2 == "NG":
+        row["判定"] = format_oqc_judge(is_ng=True, defect_type_count=n)
+        return
+
+    if is_oqc_ng_label(judge):
+        row["判定"] = format_oqc_judge(is_ng=True, defect_type_count=n)
+    elif judge.upper() in {"OK", "OK1", "OK2"} or judge.upper().startswith("OK"):
+        row["判定"] = judge if judge else "OK"
+
+
 def is_rich_text_field(key: str) -> bool:
     name = (key or "").strip()
-    return name in RICH_TEXT_IMAGE_FIELDS or name.startswith("结案后稽核事项")
+    return (
+        name in RICH_TEXT_IMAGE_FIELDS
+        or name.startswith("结案后稽核事项")
+        or name in OQC_RICH_CLOSE_KEYS
+    )
 
 
 def attach_forms(spec: dict[str, Any], frames: dict[str, pd.DataFrame]) -> None:
@@ -78,10 +257,16 @@ def build_form_spec(spec: dict[str, Any], sheet: dict[str, Any], frames: dict[st
         elif not role and not finfo and _is_oqc_entry_sheet(sheet) and key in OQC_MANUAL_FIELDS:
             col = {**col, "role": OQC_MANUAL_FIELDS[key]}
         oqc_manual = _is_oqc_entry_sheet(sheet) and key in OQC_MANUAL_FIELDS
+        # 方案 B：现象改为手选不良描述，不再由不良代码 VLOOKUP 带出
+        oqc_phenomenon_editable = _is_oqc_entry_sheet(sheet) and key == "现象"
         if not oqc_manual and (col.get("role") == "id" or any(h in key for h in ID_HINTS)):
             computed.append(_computed_field(col, finfo, "auto_id"))
             continue
-        if finfo and finfo.get("kind") in {"lookup", "extract", "calculated"}:
+        if (
+            finfo
+            and finfo.get("kind") in {"lookup", "extract", "calculated"}
+            and not oqc_phenomenon_editable
+        ):
             computed.append(_computed_field(col, finfo, finfo["kind"]))
             continue
         if finfo and finfo.get("kind") == "aggregate":
@@ -97,32 +282,50 @@ def build_form_spec(spec: dict[str, Any], sheet: dict[str, Any], frames: dict[st
             widget = "select"
             options = ["是", "否"]
             allow_custom = False
+        if key == "不良属性" and _is_oqc_entry_sheet(sheet):
+            widget = "select"
+            options = list(OQC_DEFECT_ATTR_OPTIONS)
+            allow_custom = False
+        if oqc_phenomenon_editable:
+            widget = "select"
+            allow_custom = True
         if key == "判定_2" and _is_oqc_entry_sheet(sheet):
             widget = "select"
             options = ["OK", "NG"]
             allow_custom = False
-            required = True
         if _is_oqc_entry_sheet(sheet) and key in OQC_FORM_SKIP_FIELDS:
             continue
-        if widget == "select" and not options:
+        if widget == "select" and not options and not oqc_phenomenon_editable:
             widget = "text"
             allow_custom = False
         required = bool(col.get("fill", 0) >= 0.7 and col.get("role") in {"date", "dimension", "measure"})
         if col.get("semantic") == "month" or "月份" in key:
             required = False
-        fields.append(
-            {
-                "key": key,
-                "label": col.get("label") or key,
-                "widget": widget,
-                "type": col.get("type"),
-                "role": col.get("role"),
-                "required": required,
-                "options": options,
-                "allow_custom": allow_custom,
-                "help": _help_text(col, finfo),
-            }
-        )
+        if key == "判定_2" and _is_oqc_entry_sheet(sheet):
+            required = True
+        if key == "不良属性" and _is_oqc_entry_sheet(sheet):
+            required = False
+        if key in OQC_DEFECT_GROUP_KEYS and _is_oqc_entry_sheet(sheet):
+            required = False
+        help_text = _help_text(col, finfo)
+        if key == "不良属性" and _is_oqc_entry_sheet(sheet):
+            help_text = "区分外观不良 / 性能不良，便于统计"
+        if oqc_phenomenon_editable:
+            help_text = "从代码表不良描述中选择，可多组录入"
+        field_item: dict[str, Any] = {
+            "key": key,
+            "label": col.get("label") or key,
+            "widget": widget,
+            "type": col.get("type"),
+            "role": col.get("role"),
+            "required": required,
+            "options": options,
+            "allow_custom": allow_custom,
+            "help": help_text,
+        }
+        if key in OQC_DEFECT_GROUP_KEYS and _is_oqc_entry_sheet(sheet):
+            field_item["group"] = "defect"
+        fields.append(field_item)
 
     field_limit = _field_limit(sheet, len(fields))
     kept = fields[:field_limit]
@@ -453,7 +656,15 @@ def fill_row(
 ) -> dict[str, Any]:
     columns = sheet.get("columns") or []
     keys = [c["key"] for c in columns if not c["key"].startswith("__")]
-    row = {k: _coerce(values.get(k), next((c for c in columns if c["key"] == k), {})) for k in keys}
+    row: dict[str, Any] = {}
+    for k in keys:
+        col = next((c for c in columns if c["key"] == k), {})
+        raw = values.get(k)
+        # 多组不良用「；」拼接，数量列不能按单个数字 coerce
+        if _is_oqc_entry_sheet(sheet) and k in OQC_DEFECT_GROUP_KEYS and raw not in (None, ""):
+            row[k] = str(raw).strip()
+        else:
+            row[k] = _coerce(raw, col)
 
     df = frames.get(sheet["name"])
     if assign_id:
@@ -490,6 +701,9 @@ def fill_row(
             continue
         if name == overdue_col:
             continue
+        # 抽检：现象改为手填/多组，不再用不良代码 VLOOKUP 覆盖
+        if name == "现象" and _is_oqc_entry_sheet(sheet):
+            continue
         row[name] = _eval_formula_col(finfo, row, headers, spec, frames)
 
     for col in columns:
@@ -497,11 +711,16 @@ def fill_row(
         if key.startswith("__"):
             continue
         if col.get("role") == "measure" and row.get(key) is None:
-            row[key] = 0
+            # 抽检「数量」可为多组拼接字符串，空则保持空，由 apply_oqc_defect_totals 处理
+            if not (_is_oqc_entry_sheet(sheet) and key in {"数量", "不良数量"}):
+                row[key] = 0
         if (col.get("semantic") == "status" or any(h in key for h in STATUS_HINTS)) and row.get(key) is None:
             row[key] = "待选择"
 
     apply_overdue_days(row, sheet)
+    apply_oqc_defect_totals(row, sheet)
+    apply_oqc_close_days(row, sheet)
+    apply_oqc_judge(row, sheet)
     row["__source"] = "entered"
     return row
 
@@ -654,6 +873,52 @@ def _safe_eval(expr: str) -> Any:
     return eval(expr, {"__builtins__": {}}, allowed)  # noqa: S307  restricted env
 
 
+def validate_oqc_defect_values(
+    sheet: dict[str, Any],
+    values: dict[str, Any],
+    *,
+    incoming_keys: set[str] | None = None,
+) -> None:
+    """抽检：每组位置↔现象成对；有不良时须选不良属性。
+
+    incoming_keys: 本次请求真正提交的字段。仅补 OA/闭环时不强制校验历史缺属性行。
+    """
+    if not _is_oqc_entry_sheet(sheet):
+        return
+    keys = {c.get("key") for c in (sheet.get("columns") or []) if c.get("key")}
+    groups = parse_oqc_defect_groups(values)
+    attr = str(values.get("不良属性") or "").strip()
+    try:
+        defect_qty = float(values.get("不良数量") or 0)
+    except (TypeError, ValueError):
+        defect_qty = 0.0
+
+    defect_touch = {
+        "不良位置",
+        "现象",
+        "数量",
+        "不良属性",
+        "不良数量",
+        "检验员",
+    }
+    touching_defect = incoming_keys is None or bool(set(incoming_keys) & defect_touch)
+
+    if touching_defect:
+        for i, g in enumerate(groups, start=1):
+            loc = g.get("location") or ""
+            phen = g.get("phenomenon") or ""
+            if loc and not phen and "现象" in keys:
+                raise ValueError(f"第{i}组：填写不良位置时必须填写不良现象")
+            if phen and not loc and "不良位置" in keys:
+                raise ValueError(f"第{i}组：填写不良现象时必须填写不良位置")
+
+    has_defect = bool(groups) or defect_qty > 0
+    if has_defect and "不良属性" in keys and not attr and touching_defect:
+        raise ValueError("请选择不良属性（外观不良 / 性能不良）")
+    if attr and attr not in OQC_DEFECT_ATTR_OPTIONS:
+        raise ValueError(f"不良属性仅支持：{' / '.join(OQC_DEFECT_ATTR_OPTIONS)}")
+
+
 def append_row(item: dict[str, Any], sheet_name: str, values: dict[str, Any]) -> dict[str, Any]:
     log(f"[entry.append_row] sheet={sheet_name!r} value_keys={list(values.keys())}")
     spec = item["spec"]
@@ -667,6 +932,7 @@ def append_row(item: dict[str, Any], sheet_name: str, values: dict[str, Any]) ->
     if not sheet or (not form_enabled and sheet.get("kind") not in ("fact", "table")):
         log(f"[entry.append_row] FAIL sheet not enabled sheet={sheet_name!r}")
         raise ValueError("该工作表不支持录入")
+    validate_oqc_defect_values(sheet, values)
     row = fill_row(spec, sheet, item["frames"], values, assign_id=True)
     df = item["frames"].get(sheet_name)
     if df is None:
@@ -762,6 +1028,23 @@ def _is_blank_cell(v: Any) -> bool:
     return s in ("", "-", "－", "None", "nan", "NaN")
 
 
+def _parse_numeric_row_id(v: Any) -> float | None:
+    """Return a numeric row id for gap-filling; skip labels like '1#'."""
+    if _is_blank_cell(v):
+        return None
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        if isinstance(v, float) and pd.isna(v):
+            return None
+        return float(v)
+    s = str(v).strip()
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
 def is_junk_row(row: dict[str, Any], id_key: str = "序号") -> bool:
     """无序号且所有业务字段均为空的行（Excel 导入残留）。"""
     id_val = row.get(id_key)
@@ -836,13 +1119,15 @@ def repair_missing_row_ids(df: pd.DataFrame, id_key: str = "序号") -> pd.DataF
         prev_id = next_id = None
         for j in range(pos - 1, -1, -1):
             v = out.iloc[j][id_key]
-            if not _is_blank_cell(v):
-                prev_id = float(v)
+            parsed = _parse_numeric_row_id(v)
+            if parsed is not None:
+                prev_id = parsed
                 break
         for j in range(pos + 1, len(out)):
             v = out.iloc[j][id_key]
-            if not _is_blank_cell(v):
-                next_id = float(v)
+            parsed = _parse_numeric_row_id(v)
+            if parsed is not None:
+                next_id = parsed
                 break
         if prev_id is not None and next_id is not None and next_id - prev_id > 1:
             out.at[idx, id_key] = int(prev_id + 1)
@@ -901,6 +1186,7 @@ def update_row_values(
     existing = df.loc[idx].to_dict()
     merged = {**existing, **values}
     merged.pop("__source", None)
+    validate_oqc_defect_values(sheet, merged, incoming_keys=set(values.keys()))
     row = fill_row(spec, sheet, item["frames"], merged, assign_id=False)
     row["__source"] = existing.get("__source") or "entered"
 

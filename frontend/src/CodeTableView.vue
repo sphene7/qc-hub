@@ -29,7 +29,7 @@
               <p class="section-desc">
                 共 <strong>{{ oqcDefectCategoryGroups.length }}</strong> 个大类、
                 <strong>{{ totalOqcDefects }}</strong> 项代码
-                <span class="overview-hint">· 主表「不良代码」自动带出「现象」</span>
+                <span class="overview-hint">· 主表按「不良描述」选择现象，可多组录入</span>
               </p>
             </div>
             <button v-if="canEdit" type="button" class="primary-btn" @click="openOqcDefectMajorCreate">添加大类</button>
@@ -778,8 +778,8 @@ const statusLegend = [
   { label: "OK", className: "ok", desc: "检验判定合格" },
   { label: "OK1", className: "ok1", desc: "免检" },
   { label: "OK2", className: "ok2", desc: "特采" },
-  { label: "NG", className: "ng", desc: "检验判定不良" },
-  { label: "[NG]", className: "ng-batch", desc: "同批有不良" },
+  { label: "NG", className: "ng", desc: "检验判定不良（单种）" },
+  { label: "NG×N", className: "ng-batch", desc: "同批多种不良（N 为种类数）" },
 ];
 
 const resolvedCodeSheetName = computed(() => {

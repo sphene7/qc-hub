@@ -64,16 +64,14 @@
             placeholder="选择或输入课室负责人"
           />
         </label>
-        <label v-else-if="block.type === 'oqcPhenomenonLink'" class="field">
-          <span>现象 <i class="opt">与不良代码互相联动</i></span>
-          <ComboField
-            v-model="phenomenonPicker"
-            :options="phenomenonPickerOptions"
-            placeholder="选择或输入现象"
-            @update:model-value="onPhenomenonPickerChange"
-            @change="onPhenomenonPickerChange"
-          />
-        </label>
+        <OqcDefectGroups
+          v-else-if="block.type === 'oqcDefectGroups'"
+          v-model="defectGroups"
+          :lookups="activeLookups"
+          :location-options="locationOptions"
+          :inspector-options="inspectorOptions"
+          @change="preview"
+        />
         <label v-else :class="['field', block.field.widget]">
           <span>
             {{ block.field.label }}
@@ -158,7 +156,7 @@ import ComboField from "./ComboField.vue";
 import DateField from "./DateField.vue";
 import MonthField from "./MonthField.vue";
 import RichTextField from "./RichTextField.vue";
-import { todayDateString } from "./dateField.js";
+import { yesterdayDateString } from "./dateField.js";
 import {
   formatMonthDisplay,
   fromMonthInputValue,
@@ -167,19 +165,20 @@ import {
   monthInputFromDate,
   todayMonthInputValue,
 } from "./monthField.js";
+import OqcDefectGroups from "./OqcDefectGroups.vue";
 import {
   applyOqcPickersToValues,
-  getFormLookups,
+  DEFECT_GROUP_KEYS,
+  emptyDefectGroup,
   mergeFieldOptions,
+  OQC_STEP1_HIDE_KEYS,
   oqcShowFlags,
-  onOqcDefectChange,
   onOqcModelChange,
   onOqcSectionChange,
-  pickerOptions,
   buildSectionPickerOptions,
   buildConfirmerPickerOptions,
-  buildPhenomenonPickerOptions,
-  onOqcPhenomenonChange,
+  serializeDefectGroups,
+  validateOqcDefectValues,
 } from "./oqcForm.js";
 
 const props = defineProps({
@@ -206,7 +205,7 @@ const categoryPicker = ref("");
 const sectionPicker = ref("");
 const confirmerPicker = ref("");
 const headPicker = ref("");
-const phenomenonPicker = ref("");
+const defectGroups = ref([emptyDefectGroup()]);
 const moduleFilter = ref(null);
 const classificationFilter = ref(null);
 const localLookups = ref({
@@ -223,7 +222,14 @@ const lookupsLoading = ref(false);
 
 const fields = computed(() => props.sheet?.form?.fields || []);
 const visibleFields = computed(() =>
-  fields.value.filter((f) => f.key !== "是否结案" && f.widget !== "toggle" && !isFiveM(f))
+  fields.value.filter(
+    (f) =>
+      f.key !== "是否结案" &&
+      f.widget !== "toggle" &&
+      !isFiveM(f) &&
+      !(showOqcDefectGroups.value && DEFECT_GROUP_KEYS.has(f.key)) &&
+      !(showOqcDefectGroups.value && OQC_STEP1_HIDE_KEYS.has(f.key)),
+  ),
 );
 const computedFields = computed(() => props.sheet?.form?.computed || []);
 const hasModuleField = computed(() => fields.value.some((f) => f.key === "模块"));
@@ -236,7 +242,7 @@ const oqcFlags = computed(() => oqcShowFlags(props.sheet));
 const showOqcSectionField = computed(() => oqcFlags.value.section);
 const showOqcConfirmerField = computed(() => oqcFlags.value.confirmer);
 const showOqcHeadField = computed(() => oqcFlags.value.head);
-const showOqcPhenomenonField = computed(() => oqcFlags.value.phenomenon);
+const showOqcDefectGroups = computed(() => oqcFlags.value.defectGroups);
 
 const computedView = computed(() =>
   computedFields.value.filter((c) => {
@@ -245,7 +251,7 @@ const computedView = computed(() =>
     if (c.key === "送检单位" && showOqcSectionField.value) return false;
     if (c.key === "确认者" && showOqcConfirmerField.value) return false;
     if (c.key === "课室负责人" && showOqcHeadField.value) return false;
-    if (c.key === "现象" && showOqcPhenomenonField.value) return false;
+    if (c.key === "现象" && showOqcDefectGroups.value) return false;
     return c.kind !== "auto_id" || previewRow.value[c.key] != null;
   })
 );
@@ -291,9 +297,25 @@ const headPickerOptions = computed(() => {
   if (headPicker.value) set.add(String(headPicker.value).trim());
   return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, "zh-CN"));
 });
-const phenomenonPickerOptions = computed(() =>
-  buildPhenomenonPickerOptions(activeLookups.value, phenomenonPicker.value),
-);
+const locationOptions = computed(() => {
+  const field = fields.value.find((f) => f.key === "不良位置");
+  const opts = [...(field?.options || [])];
+  for (const g of defectGroups.value || []) {
+    const loc = String(g.location || "").trim();
+    if (loc && !opts.includes(loc)) opts.push(loc);
+  }
+  return opts;
+});
+const inspectorOptions = computed(() => {
+  const field = fields.value.find((f) => f.key === "检验员");
+  const col = (props.sheet?.columns || []).find((c) => c.key === "检验员");
+  const opts = [...(field?.options || col?.options || [])];
+  for (const g of defectGroups.value || []) {
+    const n = String(g.inspector || "").trim();
+    if (n && !opts.includes(n)) opts.push(n);
+  }
+  return opts;
+});
 const moduleOwners = computed(() => activeLookups.value.module_owners || {});
 const ownerModules = computed(() => activeLookups.value.owner_modules || {});
 const classificationCategories = computed(() => activeLookups.value.classification_categories || {});
@@ -330,14 +352,27 @@ const categoryPickerOptions = computed(() => {
 const formBlocks = computed(() => {
   const blocks = [];
   let bucket = [];
+  let defectInserted = false;
   const flush = () => {
     if (bucket.length) {
       blocks.push({ type: "fiveM", fields: [...bucket] });
       bucket = [];
     }
   };
+  const insertDefect = () => {
+    if (!showOqcDefectGroups.value || defectInserted) return;
+    blocks.push({ type: "oqcDefectGroups" });
+    defectInserted = true;
+  };
   for (const f of fields.value) {
     if (f.key === "是否结案") continue;
+    if (showOqcDefectGroups.value && (DEFECT_GROUP_KEYS.has(f.key) || OQC_STEP1_HIDE_KEYS.has(f.key))) {
+      if (DEFECT_GROUP_KEYS.has(f.key)) {
+        flush();
+        insertDefect();
+      }
+      continue;
+    }
     if (f.widget === "toggle" || isFiveM(f)) {
       bucket.push(f);
     } else {
@@ -356,12 +391,10 @@ const formBlocks = computed(() => {
       if (f.key === oqcFlags.value.modelKey && showOqcConfirmerField.value) {
         blocks.push({ type: "oqcConfirmerLink" });
       }
-      if (f.key === "不良代码" && showOqcPhenomenonField.value) {
-        blocks.push({ type: "oqcPhenomenonLink" });
-      }
     }
   }
   flush();
+  insertDefect();
   return blocks;
 });
 
@@ -372,7 +405,7 @@ async function ensureLookups() {
     showOqcSectionField.value ||
     showOqcConfirmerField.value ||
     showOqcHeadField.value ||
-    showOqcPhenomenonField.value;
+    showOqcDefectGroups.value;
   if (!needInspection && !needOqc) return;
   if (lookupsLoading.value) return;
   lookupsLoading.value = true;
@@ -427,7 +460,7 @@ watch(
     showOqcSectionField.value,
     showOqcConfirmerField.value,
     showOqcHeadField.value,
-    showOqcPhenomenonField.value,
+    showOqcDefectGroups.value,
   ],
   () => {
     ensureLookups();
@@ -529,7 +562,7 @@ function comboOptions(field) {
       opts = opts.filter((o) => classificationFilter.value.includes(o));
     }
   }
-  if (field.key === "机种" || field.key === "系列" || field.key === "不良代码") {
+  if (field.key === "机种" || field.key === "系列" || field.key === "现象") {
     return mergeFieldOptions(field, activeLookups.value, form[field.key]);
   }
   const cur = form[field.key];
@@ -638,19 +671,6 @@ function onFieldChange(key, value) {
     confirmerPicker.value = pickers.confirmer || "";
     headPicker.value = pickers.head || "";
   }
-  if (key === "不良代码") {
-    const pickers = { phenomenon: phenomenonPicker.value };
-    onOqcDefectChange(value, activeLookups.value, pickers);
-    phenomenonPicker.value = pickers.phenomenon || "";
-  }
-  preview();
-}
-
-function onPhenomenonPickerChange(value) {
-  phenomenonPicker.value = value == null ? "" : String(value);
-  const pickers = { defectCode: "" };
-  const code = onOqcPhenomenonChange(phenomenonPicker.value, activeLookups.value, pickers);
-  if (code) form["不良代码"] = code;
   preview();
 }
 
@@ -658,6 +678,9 @@ function payload() {
   const values = {};
   for (const f of fields.value) {
     if (f.key === "是否结案") continue;
+    if (showOqcDefectGroups.value && (DEFECT_GROUP_KEYS.has(f.key) || OQC_STEP1_HIDE_KEYS.has(f.key))) {
+      continue;
+    }
     const v = form[f.key];
     if (f.widget === "toggle" || isFiveM(f)) {
       values[f.key] = isFiveMActive(f.key) ? 1 : 0;
@@ -673,17 +696,13 @@ function payload() {
   if (showCategoryField.value && categoryPicker.value) {
     values["类别"] = categoryPicker.value;
   }
-  if (showOqcSectionField.value && sectionPicker.value) {
-    values["送检单位"] = sectionPicker.value;
-  }
-  if (showOqcConfirmerField.value && confirmerPicker.value) {
-    values["确认者"] = confirmerPicker.value;
-  }
-  if (showOqcHeadField.value && headPicker.value) {
-    values["课室负责人"] = headPicker.value;
-  }
-  if (showOqcPhenomenonField.value && phenomenonPicker.value) {
-    values["现象"] = phenomenonPicker.value;
+  applyOqcPickersToValues(values, oqcFlags.value, {
+    section: sectionPicker.value,
+    confirmer: confirmerPicker.value,
+    head: headPicker.value,
+  });
+  if (showOqcDefectGroups.value) {
+    Object.assign(values, serializeDefectGroups(defectGroups.value));
   }
   return values;
 }
@@ -711,10 +730,6 @@ async function preview() {
       if (confirmer) confirmerPicker.value = String(confirmer);
       const head = previewRow.value["课室负责人"];
       if (head) headPicker.value = String(head);
-      const phen = previewRow.value["现象"];
-      if (phen) phenomenonPicker.value = String(phen);
-      const codeFromRow = previewRow.value["不良代码"];
-      if (codeFromRow) form["不良代码"] = String(codeFromRow);
     }
   } catch (err) {
     console.warn("[EntryForm] preview-row error", err);
@@ -729,6 +744,12 @@ async function submit() {
       message.value = `请填写 ${f.label}`;
       return;
     }
+  }
+  const defectErr = validateOqcDefectValues(props.sheet, payload(), defectGroups.value);
+  if (defectErr) {
+    ok.value = false;
+    message.value = defectErr;
+    return;
   }
   saving.value = true;
   const body = { sheet: props.sheet.name, values: payload() };
@@ -758,7 +779,8 @@ async function submit() {
 function reset(clearMsg = true) {
   for (const k of Object.keys(form)) delete form[k];
   for (const f of fields.value) {
-    if (f.widget === "date") form[f.key] = todayDateString();
+    // 抽检：默认录昨天的业务日；月份随日期带出
+    if (f.widget === "date") form[f.key] = yesterdayDateString();
   }
   syncMonthFromDate(form["日期"]);
   for (const f of fields.value) {
@@ -772,6 +794,10 @@ function reset(clearMsg = true) {
   previewRow.value = {};
   ownerPicker.value = "";
   categoryPicker.value = "";
+  sectionPicker.value = "";
+  confirmerPicker.value = "";
+  headPicker.value = "";
+  defectGroups.value = [emptyDefectGroup()];
   moduleFilter.value = null;
   classificationFilter.value = null;
   if (clearMsg) message.value = "";
@@ -885,6 +911,23 @@ input, select, textarea {
   font-size: 11px;
   align-self: start;
   width: 100%;
+}
+.entry-sidebar :deep(.defect-groups) {
+  padding: 6px;
+  gap: 6px;
+}
+.entry-sidebar :deep(.defect-fields) {
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+.entry-sidebar :deep(.defect-row) {
+  padding: 6px;
+}
+.entry-sidebar :deep(.field input) {
+  height: 26px;
+  min-height: 26px;
+  padding: 2px 6px;
+  font-size: 12px;
 }
 .entry-sidebar .five-m-btn {
   padding: 3px 8px;

@@ -228,6 +228,7 @@
                   @change="toggleSelectAllPage"
                 />
               </th>
+              <th v-if="hasActions">操作</th>
               <th v-for="col in displayColumns" :key="col">
                 <div class="th-inner">
                   <span class="col-label">{{ col }}</span>
@@ -249,7 +250,6 @@
                   </span>
                 </div>
               </th>
-              <th v-if="hasActions">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -271,6 +271,22 @@
                   @change="toggleRowSelect(row)"
                 />
               </td>
+              <td v-if="hasActions" class="actions-cell">
+                <button 
+                  v-if="canUpdate && design.main_table.actions?.includes('edit')"
+                  class="icon-btn"
+                  @click="editRow(row)"
+                >
+                  ✏️
+                </button>
+                <button 
+                  v-if="canDeleteRow"
+                  class="icon-btn"
+                  @click="deleteRow(row)"
+                >
+                  🗑️
+                </button>
+              </td>
               <td
                 v-for="col in displayColumns"
                 :key="col"
@@ -291,22 +307,6 @@
                   </option>
                 </select>
                 <span v-else class="cell-text">{{ formatCellValue(row[col], col) }}</span>
-              </td>
-              <td v-if="hasActions" class="actions-cell">
-                <button 
-                  v-if="canUpdate && design.main_table.actions?.includes('edit')"
-                  class="icon-btn"
-                  @click="editRow(row)"
-                >
-                  ✏️
-                </button>
-                <button 
-                  v-if="canDeleteRow"
-                  class="icon-btn"
-                  @click="deleteRow(row)"
-                >
-                  🗑️
-                </button>
               </td>
             </tr>
           </tbody>

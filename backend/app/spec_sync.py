@@ -5,6 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from .entry import build_form_spec, is_rich_text_field, _is_oqc_entry_sheet
+from .module_blueprints import (
+    MODULE_KEYS,
+    SAMPLING_HIDDEN_DISPLAY_COLUMNS,
+    apply_module_blueprint,
+    attach_module_to_spec,
+    curated_display_columns,
+)
 
 
 def _find_sheet(spec: dict[str, Any], sheet_name: str) -> dict[str, Any] | None:
@@ -33,6 +40,11 @@ def sheet_display_columns(sheet: dict[str, Any]) -> list[str]:
 
 
 def ensure_main_table_columns(design: dict[str, Any], spec: dict[str, Any]) -> None:
+    """Keep display columns curated — do not expand to full Excel sheet width.
+
+    Known homepage modules use blueprint column lists. Generic AI designs keep
+    a reasonable curated list (or cap at ~20) instead of mirroring every column.
+    """
     mt = design.get("main_table") or {}
     sheet_name = mt.get("sheet") or ""
     sheet = _find_sheet(spec, sheet_name)
@@ -43,15 +55,43 @@ def ensure_main_table_columns(design: dict[str, Any], spec: dict[str, Any]) -> N
     if not all_cols:
         return
 
-    existing = list(mt.get("display_columns") or [])
-    if existing and len(existing) >= len(all_cols):
-        merged = existing[:]
-        for col in all_cols:
-            if col not in merged:
-                merged.append(col)
-        mt["display_columns"] = merged
+    present = set(all_cols)
+    module_key = (
+        design.get("module_key")
+        or spec.get("module_key")
+        or (design.get("business_understanding") or {}).get("module_key")
+    )
+    existing = [c for c in (mt.get("display_columns") or []) if c in present]
+
+    hidden = (
+        SAMPLING_HIDDEN_DISPLAY_COLUMNS
+        if module_key == "sampling"
+        else frozenset()
+    )
+
+    curated = curated_display_columns(sheet, module_key if module_key in MODULE_KEYS else None)
+    if curated:
+        extras = [c for c in existing if c not in curated and c not in hidden][:5]
+        mt["display_columns"] = [c for c in (curated + extras) if c not in hidden]
+        mt["columns_source"] = "module_blueprint"
+    elif existing:
+        # Preserve AI/user curated list; only drop missing columns
+        # Cap runaway lists that look like full-sheet mirrors
+        cleaned = [c for c in existing if c not in hidden]
+        if len(cleaned) > 24 and len(cleaned) >= len(all_cols) * 0.85:
+            mt["display_columns"] = cleaned[:18]
+            mt["columns_source"] = "capped"
+        else:
+            mt["display_columns"] = cleaned
+            mt.setdefault("columns_source", "curated")
     else:
-        mt["display_columns"] = all_cols
+        # No prior list: show a compact default, not every column
+        preferred = [
+            c for c in all_cols if not str(c).startswith("列") and c not in hidden
+        ][:18]
+        mt["display_columns"] = preferred or [c for c in all_cols[:18] if c not in hidden]
+        mt["columns_source"] = "default_compact"
+
     design["main_table"] = mt
 
 
@@ -123,10 +163,97 @@ OQC_FILTER_EXCLUDED = frozenset({
     "同批送检次数",
     "间断送检次数",
     "层别备注",
-    "OA单号",
-    "结案天数",
+    "是否紧急出货",
+    "不良代码",
+    "单据类型",
+    "判定_2",
     "不良率",
+    # 长文本闭环列不适合做筛选项（仍在列表展示）
+    "临时对策",
+    "根因分析",
+    "永久对策",
+    "改善后确认",
 })
+
+# 抽检主表补齐业务字段（旧项目同步时注入）
+OQC_ENSURE_COLUMNS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "不良属性",
+        "label": "不良属性",
+        "role": "dimension",
+        "type": "string",
+        "insert_before": "不良位置",
+    },
+    {
+        "key": "检验员",
+        "label": "检验员",
+        "role": "dimension",
+        "type": "string",
+        "insert_before": "同批送检次数",
+    },
+    {
+        "key": "OA单号",
+        "label": "OA单号",
+        "role": "text",
+        "type": "string",
+        "insert_before": "责任单位",
+    },
+    {
+        "key": "指定质控公司",
+        "label": "指定质控公司",
+        "role": "dimension",
+        "type": "string",
+        "insert_before": "责任单位",
+    },
+    {
+        "key": "临时对策",
+        "label": "临时对策",
+        "role": "text",
+        "type": "string",
+        "insert_before": "责任单位",
+    },
+    {
+        "key": "根因分析",
+        "label": "根因分析",
+        "role": "text",
+        "type": "string",
+        "insert_before": "责任单位",
+    },
+    {
+        "key": "永久对策",
+        "label": "永久对策",
+        "role": "text",
+        "type": "string",
+        "insert_before": "责任单位",
+    },
+    {
+        "key": "改善后确认",
+        "label": "改善后确认",
+        "role": "text",
+        "type": "string",
+        "insert_before": "责任单位",
+    },
+    {
+        "key": "责任人",
+        "label": "责任人",
+        "role": "dimension",
+        "type": "string",
+        "insert_before": "责任课级负责人",
+    },
+    {
+        "key": "结案日期",
+        "label": "结案日期",
+        "role": "date",
+        "type": "date",
+        "insert_before": "结案天数",
+    },
+    {
+        "key": "结案天数",
+        "label": "结案天数",
+        "role": "measure",
+        "type": "number",
+    },
+)
 
 
 def _is_complaint_sheet(sheet: dict[str, Any] | None, design: dict[str, Any]) -> bool:
@@ -234,6 +361,62 @@ def ensure_form_fields(spec: dict[str, Any], frames: dict[str, Any] | None = Non
             sheet["form"] = rebuilt
 
 
+def _insert_column_meta(sheet: dict[str, Any], col_meta: dict[str, Any]) -> bool:
+    """Insert a column definition if missing. Returns True when newly added."""
+    key = col_meta["key"]
+    columns = list(sheet.get("columns") or [])
+    if any((c.get("key") or "") == key for c in columns):
+        # Keep role usable for forms even if Excel marked it empty
+        for c in columns:
+            if (c.get("key") or "") == key and c.get("role") in {None, "", "empty"}:
+                c["role"] = col_meta.get("role") or "dimension"
+                c.setdefault("type", col_meta.get("type") or "string")
+                c.setdefault("label", col_meta.get("label") or key)
+                sheet["columns"] = columns
+                return True
+        return False
+
+    item = {
+        "key": key,
+        "label": col_meta.get("label") or key,
+        "role": col_meta.get("role") or "dimension",
+        "type": col_meta.get("type") or "string",
+    }
+    before = col_meta.get("insert_before")
+    idx = next((i for i, c in enumerate(columns) if (c.get("key") or "") == before), -1)
+    if idx >= 0:
+        columns.insert(idx, item)
+    else:
+        columns.append(item)
+    sheet["columns"] = columns
+    return True
+
+
+def ensure_oqc_schema(spec: dict[str, Any], frames: dict[str, Any] | None = None) -> None:
+    """Inject 不良属性等抽检字段，并保证 dataframe 有对应列。"""
+    for sheet in spec.get("sheets") or []:
+        if not _is_oqc_entry_sheet(sheet):
+            continue
+        for meta in OQC_ENSURE_COLUMNS:
+            _insert_column_meta(sheet, meta)
+
+        if not frames:
+            continue
+        name = sheet.get("name") or ""
+        df = frames.get(name)
+        if df is None:
+            continue
+        changed = False
+        for meta in OQC_ENSURE_COLUMNS:
+            key = meta["key"]
+            if key not in df.columns:
+                df = df.copy()
+                df[key] = None
+                changed = True
+        if changed:
+            frames[name] = df
+
+
 def ensure_oqc_entry_forms(spec: dict[str, Any], frames: dict[str, Any]) -> None:
     """OQC 主表录入项随 entry 规则刷新（判定自动、判定_2 手选等）。"""
     for sheet in spec.get("sheets") or []:
@@ -245,8 +428,17 @@ def ensure_oqc_entry_forms(spec: dict[str, Any], frames: dict[str, Any]) -> None
 
 
 def sync_spec(spec: dict[str, Any], frames: dict[str, Any] | None = None) -> dict[str, Any]:
+    # Backfill module alignment for older projects that lack module_key
+    if not spec.get("module_key"):
+        attach_module_to_spec(spec, filename=spec.get("filename"))
+
+    ensure_oqc_schema(spec, frames)
+
     design = spec.get("dashboard_design")
     if design:
+        module_key = design.get("module_key") or spec.get("module_key")
+        design = apply_module_blueprint(design, spec, module_key)
+        spec["dashboard_design"] = design
         ensure_main_table_columns(design, spec)
         ensure_dashboard_filters(design, spec)
         ensure_filter_exclusions(design, spec)

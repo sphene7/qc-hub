@@ -11,6 +11,7 @@ from typing import Any
 from openai import OpenAI
 
 from .logutil import log as _log
+from .module_blueprints import apply_module_blueprint, prompt_guidance
 from .spec_sync import ensure_main_table_columns, ensure_dashboard_filters
 
 LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
@@ -206,6 +207,8 @@ def _normalize_design(raw: dict[str, Any], spec: dict[str, Any]) -> dict[str, An
         mt["sheet"] = bu.get("main_entity") or spec.get("primary_sheet") or ""
         design["main_table"] = mt
 
+    module_key = design.get("module_key") or spec.get("module_key")
+    design = apply_module_blueprint(design, spec, module_key)
     ensure_main_table_columns(design, spec)
     ensure_dashboard_filters(design, spec)
     return design
@@ -213,15 +216,19 @@ def _normalize_design(raw: dict[str, Any], spec: dict[str, Any]) -> dict[str, An
 
 def _build_json_prompt(spec: dict[str, Any]) -> str:
     summary = _summarize_spec(spec)
+    module_key = spec.get("module_key")
+    guidance = prompt_guidance(module_key, spec)
     return f"""你是Excel业务系统架构师。根据以下Excel结构，设计一个**单页业务看板**的配置JSON。
 
 要求：
 1. 只输出一个合法JSON对象，不要markdown，不要解释文字
-2. 识别主数据表（fact表优先）
+2. 识别主数据表（fact表优先）；配置/代码/说明/图表 sheet 不要当主表
 3. KPI 3-6个，图表 4-6个，筛选器 3-5个
 4. 字段名必须使用Excel中的真实列名（columns.name）
 5. 表名必须使用真实sheet名
-
+6. 网页表结构应对齐系统主页已有三模块（产线巡检/客诉跟进/产品抽检）的展示方式，
+   不要把 Excel 原始分表逐页镜像成网站；display_columns 控制在 8–20 个关键列
+{guidance}
 Excel结构：
 {json.dumps(summary, ensure_ascii=False, indent=2)}
 
@@ -232,17 +239,23 @@ JSON schema：
 
 def _build_design_doc_prompt(spec: dict[str, Any], design: dict[str, Any]) -> str:
     summary = _summarize_spec(spec)
+    module_label = spec.get("module_label") or design.get("module_key") or "通用"
     return f"""请为以下Excel业务系统设计一份**中文设计方案**（markdown格式），供产品经理阅读。
 
 Excel: {spec.get('filename')}
+对齐模块: {module_label}
 已生成的系统配置摘要：
 - 业务类型: {design.get('business_understanding', {}).get('type')}
 - 主表: {design.get('main_table', {}).get('sheet')}
+- 展示列数: {len((design.get('main_table') or {}).get('display_columns') or [])}
 - KPI: {[k.get('label') for k in design.get('kpis', [])]}
 - 图表: {[c.get('title') for c in design.get('charts', [])]}
 
 Excel结构：
 {json.dumps(summary, ensure_ascii=False, indent=2)}
+
+重要：设计方案应说明如何对齐主页三模块的网页结构（一页主表明细 + 附属分析/类别管理），
+而不是按 Excel 每个 sheet 做一个独立页面。
 
 请按以下章节输出：
 ## 一、业务理解
@@ -321,12 +334,17 @@ def analyze_excel_structure(parsed_data: dict[str, Any], spec: dict[str, Any]) -
     except Exception as exc:
         _log(f"   ⚠️ 阶段2失败（不影响JSON配置）: {exc}")
 
+    module_key = design.get("module_key") or spec.get("module_key")
+    design = apply_module_blueprint(design, spec, module_key)
     ensure_main_table_columns(design, spec)
     ensure_dashboard_filters(design, spec)
 
     _log("\n" + "=" * 80)
     _log("🎉 DeepSeek 分析完成")
+    _log(f"   模块对齐: {module_key or 'generic'}")
     _log(f"   业务类型: {design.get('business_understanding', {}).get('type')}")
+    _log(f"   主表: {(design.get('main_table') or {}).get('sheet')}")
+    _log(f"   展示列: {len((design.get('main_table') or {}).get('display_columns') or [])}")
     _log(f"   KPI: {len(design.get('kpis', []))}, 图表: {len(design.get('charts', []))}")
     _log("=" * 80 + "\n")
     return design
@@ -348,6 +366,7 @@ def _get_fallback_design(spec: dict[str, Any]) -> dict[str, Any]:
     primary_sheet = spec.get("primary_sheet") or (spec.get("sheets", [{}])[0].get("name", ""))
     primary = next((s for s in spec.get("sheets", []) if s.get("name") == primary_sheet), None)
     cols = [c["key"] for c in (primary or {}).get("columns", []) if c.get("role") != "empty"][:8]
+    module_key = spec.get("module_key")
 
     design = {
         "business_understanding": {
@@ -372,7 +391,9 @@ def _get_fallback_design(spec: dict[str, Any]) -> dict[str, Any]:
         },
         "filters": [],
         "layout": {"order": ["kpis", "table"], "emphasis": "table"},
+        "module_key": module_key,
     }
+    design = apply_module_blueprint(design, spec, module_key)
     ensure_main_table_columns(design, spec)
     ensure_dashboard_filters(design, spec)
     return design

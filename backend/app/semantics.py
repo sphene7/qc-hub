@@ -8,6 +8,7 @@ from typing import Any
 
 import pandas as pd
 
+from .module_blueprints import attach_module_to_spec
 from .parser import _excel_serial_to_date
 
 DATE_SORT_FIELDS = frozenset({"日期", "抽检状况", "发生日期", "投诉日期", "反馈日期"})
@@ -43,14 +44,17 @@ def build_workbook_spec(parsed: dict[str, Any]) -> dict[str, Any]:
         sheets_out.append(spec)
         joins.extend(spec.get("joins") or [])
 
-    return {
+    spec = {
         "filename": parsed["filename"],
         "title": parsed["title"],
         "primary_sheet": (primary or {}).get("name"),
         "sheets": sheets_out,
         "joins": _unique_joins(joins),
-        "smart_view": _build_smart_view(sheets_out, _unique_joins(joins)),  # NEW
+        "smart_view": _build_smart_view(sheets_out, _unique_joins(joins)),
     }
+    # Align primary_sheet / smart_view with homepage modules (巡检/客诉/抽检)
+    attach_module_to_spec(spec, filename=parsed.get("filename"))
+    return spec
 
 
 def _pick_primary(sheets: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -736,12 +740,21 @@ def _build_smart_view(sheets: list[dict[str, Any]], joins: list[dict[str, Any]])
     # 1. Identify main data sheets (fact tables with substantial data)
     main_sheets = []
     for s in sheets:
+        if s.get('derived'):
+            continue
         if s['kind'] == 'fact' and s['row_count'] >= 20 and not s.get('empty'):
+            name = s['name'] or ''
+            reason = '主要数据表'
+            # Wide sampling matrices / chart sheets are satellite, not homepage main tables
+            if '抽检数据' in name and '问题清单' not in name:
+                reason = '附属宽表（对应网页「抽检数据」页，非整站主表）'
+            elif s['kind'] == 'dashboard' or name in ('首页', '汇总'):
+                continue
             main_sheets.append({
                 'name': s['name'],
                 'row_count': s['row_count'],
                 'col_count': s['col_count'],
-                'reason': '主要数据表',
+                'reason': reason,
             })
     
     # 2. Identify lookup/config sheets (referenced by others)

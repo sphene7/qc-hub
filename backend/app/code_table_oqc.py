@@ -301,6 +301,9 @@ def sync_oqc_rows_from_code(item: dict[str, Any]) -> dict[str, Any]:
         for from_field, result_field, _, _ in _oqc_join_rules(spec):
             if from_field not in out.columns or result_field not in out.columns:
                 continue
+            # 方案 B：现象改为手选/多组描述，不再用不良代码回填覆盖
+            if result_field == "现象" or from_field == "不良代码":
+                continue
             src = str(out.at[idx, from_field] or "").strip()
             if not src:
                 continue
@@ -338,7 +341,9 @@ def refresh_oqc_main_options(
     lookups = build_oqc_lookups(code_df)
     series_list = sorted(lookups["series_sections"].keys())
     sections = sorted(set(lookups["series_sections"].values()))
-    defect_codes = sorted(lookups["defect_phenomena"].keys())
+    defect_descs = sorted(
+        {str(v).strip() for v in (lookups["defect_phenomena"] or {}).values() if str(v or "").strip()}
+    )
 
     main_spec["form"] = build_form_spec(spec, main_spec, frames)
     for field in (main_spec.get("form") or {}).get("fields") or []:
@@ -347,8 +352,10 @@ def refresh_oqc_main_options(
             field["options"] = series_list
         elif key == "送检单位":
             field["options"] = sections
-        elif key == "不良代码":
-            field["options"] = defect_codes
+        elif key == "现象":
+            field["options"] = defect_descs
+            field["allow_custom"] = True
+            field["widget"] = "select"
 
     for flt in main_spec.get("filters") or []:
         fkey = flt.get("field")
@@ -358,9 +365,13 @@ def refresh_oqc_main_options(
         elif fkey == "送检单位":
             flt["type"] = "enum"
             flt["options"] = sections
-        elif fkey == "不良代码":
+        elif fkey == "现象":
             flt["type"] = "enum"
-            flt["options"] = defect_codes
+            flt["options"] = defect_descs
+        elif fkey == "不良代码":
+            # 方案 B：筛选改为现象描述，旧不良代码筛选保留空选项以免报错
+            flt["type"] = "enum"
+            flt["options"] = sorted(lookups["defect_phenomena"].keys())
 
     design = spec.get("dashboard_design") or {}
     for flt in design.get("filters") or []:
@@ -573,7 +584,7 @@ def delete_oqc_defect_category(item: dict[str, Any], *, code_sheet: str | None, 
     mask = code_df["大类"].astype(str).str.strip() == category
     if not mask.any():
         raise ValueError(f"找不到大类「{category}」")
-    if main_df is not None and "不良代码" in main_df.columns:
+    if main_df is not None:
         codes = (
             code_df.loc[mask, "代码"]
             .dropna()
@@ -581,16 +592,49 @@ def delete_oqc_defect_category(item: dict[str, Any], *, code_sheet: str | None, 
             .str.strip()
             .tolist()
         )
+        descs = (
+            code_df.loc[mask, "不良描述"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .tolist()
+            if "不良描述" in code_df.columns
+            else []
+        )
         for code in codes:
             if not code or code.lower() in {"nan", "none"}:
                 continue
-            used = int((main_df["不良代码"].astype(str).str.strip() == code).sum())
+            used = _count_main_defect_refs(main_df, code=code)
             if used > 0:
                 raise ValueError(f"大类下代码「{code}」已被抽检明细引用 {used} 次，无法删除该大类")
+        for desc in descs:
+            if not desc or desc.lower() in {"nan", "none"}:
+                continue
+            used = _count_main_defect_refs(main_df, desc=desc)
+            if used > 0:
+                raise ValueError(f"大类下现象「{desc}」已被抽检明细引用 {used} 次，无法删除该大类")
     code_df = code_df.loc[~mask].reset_index(drop=True)
     item["frames"][resolved] = code_df
     sync = sync_oqc_rows_from_code(item)
     return {**oqc_payload(code_df, code_sheet=resolved, main_sheet=_find_oqc_main_sheet(spec)), "sync": sync}
+
+
+def _count_main_defect_refs(
+    main_df: pd.DataFrame,
+    *,
+    code: str | None = None,
+    desc: str | None = None,
+) -> int:
+    used = 0
+    if code and "不良代码" in main_df.columns:
+        used += int((main_df["不良代码"].astype(str).str.strip() == code).sum())
+    if desc and "现象" in main_df.columns:
+        from .entry import split_oqc_defect_parts
+
+        for raw in main_df["现象"].tolist():
+            if desc in split_oqc_defect_parts(raw):
+                used += 1
+    return used
 
 
 def delete_oqc_defect(item: dict[str, Any], *, code_sheet: str | None, code: str) -> dict[str, Any]:
@@ -600,10 +644,15 @@ def delete_oqc_defect(item: dict[str, Any], *, code_sheet: str | None, code: str
     code_df = item["frames"].get(resolved)
     main_name = _resolve_sheet_name(spec, item["frames"], _find_oqc_main_sheet(spec) or "")
     main_df = item["frames"].get(main_name) if main_name else None
-    if main_df is not None and "不良代码" in main_df.columns:
-        used = int((main_df["不良代码"].astype(str).str.strip() == code).sum())
+    desc = ""
+    if code_df is not None and not code_df.empty and "不良描述" in code_df.columns:
+        mask0 = _find_defect_mask(code_df, code=code)
+        if mask0.any():
+            desc = str(code_df.loc[code_df.index[mask0][0], "不良描述"] or "").strip()
+    if main_df is not None:
+        used = _count_main_defect_refs(main_df, code=code, desc=desc or None)
         if used > 0:
-            raise ValueError(f"不良代码「{code}」已被抽检明细引用 {used} 次，无法删除")
+            raise ValueError(f"不良「{desc or code}」已被抽检明细引用 {used} 次，无法删除")
     if code_df is None or code_df.empty:
         raise ValueError("代码表无数据")
     mask = _find_defect_mask(code_df, code=code)

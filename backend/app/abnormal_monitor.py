@@ -69,7 +69,10 @@ def _row_id(row: pd.Series, fallback: int) -> str:
 
 def _is_ng(val: Any) -> bool:
     s = str(val or "").strip().upper()
-    return s == "NG" or s.startswith("[NG]")
+    if s == "NG" or s.startswith("[NG]"):
+        return True
+    # NG×N — same-batch multiple defect kinds
+    return s.startswith("NG×") or s.startswith("NGX") or s.startswith("NG*")
 
 
 def _resolve_judge_col(df: pd.DataFrame) -> str | None:

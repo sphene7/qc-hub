@@ -16,6 +16,36 @@
         <p class="muted">共 {{ spec.sheets?.length || 0 }} 个工作表</p>
       </div>
 
+      <!-- Module alignment (homepage three tables) -->
+      <div v-if="moduleLabel" class="module-align-section">
+        <div class="section-header">
+          <h3>对齐主页业务表</h3>
+          <span class="badge module">{{ moduleLabel }}</span>
+        </div>
+        <div class="module-align-box">
+          <p>
+            将按主页「{{ moduleLabel }}」模块的网页结构生成，而不是按 Excel 原始分表逐页镜像。
+          </p>
+          <ul>
+            <li v-if="preferredMainSheet">
+              <strong>主表明细：</strong>{{ preferredMainSheet }}
+              <span v-if="displayColCount" class="muted"> · 展示 {{ displayColCount }} 列（精选，非整表全列）</span>
+            </li>
+            <li v-if="smartView?.module_hint">{{ smartView.module_hint }}</li>
+            <li>代码/对照表 → 类别管理或下拉选项；汇总/图表 sheet → 趋势分析页</li>
+          </ul>
+        </div>
+      </div>
+      <div v-else class="module-align-section generic">
+        <div class="section-header">
+          <h3>通用看板</h3>
+          <span class="badge">未匹配三模块</span>
+        </div>
+        <p class="muted">
+          未识别为产线巡检 / 客诉跟进 / 产品抽检。将生成通用单页看板；多 sheet 时可在「原始分表」中切换。
+        </p>
+      </div>
+
       <!-- Smart Integration Recommendations -->
       <div v-if="smartView?.has_recommendations" class="smart-view-section">
         <div class="section-header">
@@ -24,7 +54,7 @@
         </div>
 
         <div class="recommendation-box">
-          <p class="intro">系统检测到以下表可以整合成一页式系统：</p>
+          <p class="intro">系统检测到以下表可整合进主页式一页系统（主表 + 配置下拉）：</p>
 
           <div class="recommendations">
             <div v-for="(rec, idx) in smartView.recommendations" :key="idx" class="rec-item">
@@ -113,9 +143,9 @@
         </div>
       </div>
 
-      <!-- All Sheets List -->
-      <details class="all-sheets" open>
-        <summary>所有工作表详情 ({{ spec.sheets?.length || 0 }})</summary>
+      <!-- All Sheets List — collapsed when aligned to a homepage module -->
+      <details class="all-sheets" :open="!moduleLabel">
+        <summary>Excel 原始分表详情 ({{ spec.sheets?.length || 0 }}) — 仅作参考，网页不以分表镜像</summary>
         <div class="sheets-preview">
           <div v-for="sheet in spec.sheets" :key="sheet.name" class="sheet-detail">
             <div class="detail-header">
@@ -154,6 +184,23 @@ const selectedIntegrations = ref([])
 
 const smartView = computed(() => props.spec?.smart_view || null)
 const dashboardDesign = computed(() => props.spec?.dashboard_design || null)
+const moduleKey = computed(
+  () => props.spec?.module_key || smartView.value?.module_key || dashboardDesign.value?.module_key || '',
+)
+const moduleLabel = computed(() => {
+  const labels = { inspection: '产线巡检', complaint: '客诉跟进', sampling: '产品抽检' }
+  return props.spec?.module_label || smartView.value?.module_label || labels[moduleKey.value] || ''
+})
+const preferredMainSheet = computed(
+  () =>
+    smartView.value?.preferred_main_sheet ||
+    dashboardDesign.value?.main_table?.sheet ||
+    props.spec?.primary_sheet ||
+    '',
+)
+const displayColCount = computed(
+  () => (dashboardDesign.value?.main_table?.display_columns || []).length,
+)
 
 // Pre-select all recommendations by default
 if (smartView.value?.recommendations) {
@@ -279,6 +326,40 @@ function kindLabel(kind) {
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+.module-align-section {
+  background: #f0f7f4;
+  border: 1px solid #b7d4c8;
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.module-align-section.generic {
+  background: #f7f7f5;
+  border-color: var(--line);
+}
+
+.module-align-box {
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.module-align-box ul {
+  margin: 8px 0 0;
+  padding-left: 1.2em;
+}
+
+.module-align-box .muted {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.badge.module {
+  background: #1a7a54;
+  color: #fff;
 }
 
 .file-info {

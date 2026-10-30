@@ -88,16 +88,14 @@
               @change="preview"
             />
           </label>
-          <label v-else-if="block.type === 'oqcPhenomenonLink'" class="field">
-            <span>现象 <i class="opt">与不良代码互相联动</i></span>
-            <ComboField
-              v-model="phenomenonPicker"
-              :options="phenomenonPickerOptions"
-              placeholder="选择或输入现象"
-              @update:model-value="onPhenomenonPickerChange"
-              @change="onPhenomenonPickerChange"
-            />
-          </label>
+          <OqcDefectGroups
+            v-else-if="block.type === 'oqcDefectGroups'"
+            v-model="defectGroups"
+            :lookups="activeLookups"
+            :location-options="locationOptions"
+            :inspector-options="inspectorOptions"
+            @change="preview"
+          />
         </template>
 
         <div v-if="computedPreview.length" class="computed">
@@ -137,20 +135,24 @@ import {
   monthInputFromDate,
   toMonthInputValue,
 } from "./monthField.js";
+import OqcDefectGroups from "./OqcDefectGroups.vue";
 import {
   applyOqcPickersToValues,
   buildSectionPickerOptions,
   buildConfirmerPickerOptions,
-  buildPhenomenonPickerOptions,
+  DEFECT_GROUP_KEYS,
+  emptyDefectGroup,
   getFormLookups,
-  onOqcPhenomenonChange,
   mergeFieldOptions,
+  OQC_STEP1_HIDE_KEYS,
   oqcShowFlags,
-  onOqcDefectChange,
   onOqcModelChange,
   onOqcSectionChange,
+  parseDefectGroups,
   pickerOptions,
+  serializeDefectGroups,
   syncOqcPickersFromRow,
+  validateOqcDefectValues,
 } from "./oqcForm.js";
 
 const props = defineProps({
@@ -172,25 +174,42 @@ const previewRow = ref({});
 const sectionPicker = ref("");
 const confirmerPicker = ref("");
 const headPicker = ref("");
-const phenomenonPicker = ref("");
+const defectGroups = ref([emptyDefectGroup()]);
 const localLookups = ref({});
 
 const computedKeys = computed(() =>
   new Set((props.sheet?.form?.computed || []).map((c) => c.key))
 );
 
+const oqcFlags = computed(() => oqcShowFlags(props.sheet));
+
 const editableFields = computed(() =>
   (props.sheet?.form?.fields || []).filter(
-    (f) => f.key !== "是否结案" && f.widget !== "toggle" && !computedKeys.value.has(f.key)
+    (f) =>
+      f.key !== "是否结案" &&
+      f.widget !== "toggle" &&
+      !computedKeys.value.has(f.key) &&
+      !(oqcFlags.value.defectGroups && DEFECT_GROUP_KEYS.has(f.key)) &&
+      !(oqcFlags.value.defectGroups && OQC_STEP1_HIDE_KEYS.has(f.key)),
   )
 );
 
-const oqcFlags = computed(() => oqcShowFlags(props.sheet));
 const activeLookups = computed(() => getFormLookups(props.sheet, localLookups.value));
 
 const formBlocks = computed(() => {
   const blocks = [];
-  for (const f of editableFields.value) {
+  let defectInserted = false;
+  const insertDefect = () => {
+    if (!oqcFlags.value.defectGroups || defectInserted) return;
+    blocks.push({ type: "oqcDefectGroups" });
+    defectInserted = true;
+  };
+  for (const f of (props.sheet?.form?.fields || [])) {
+    if (f.key === "是否结案" || f.widget === "toggle" || computedKeys.value.has(f.key)) continue;
+    if (oqcFlags.value.defectGroups && (DEFECT_GROUP_KEYS.has(f.key) || OQC_STEP1_HIDE_KEYS.has(f.key))) {
+      if (DEFECT_GROUP_KEYS.has(f.key)) insertDefect();
+      continue;
+    }
     blocks.push({ type: "field", field: f });
     if (f.key === oqcFlags.value.modelKey && oqcFlags.value.section) {
       blocks.push({ type: "oqcSectionLink" });
@@ -199,10 +218,8 @@ const formBlocks = computed(() => {
     if (f.key === oqcFlags.value.modelKey && oqcFlags.value.confirmer) {
       blocks.push({ type: "oqcConfirmerLink" });
     }
-    if (f.key === "不良代码" && oqcFlags.value.phenomenon) {
-      blocks.push({ type: "oqcPhenomenonLink" });
-    }
   }
+  insertDefect();
   return blocks;
 });
 
@@ -211,7 +228,7 @@ const computedPreview = computed(() =>
     if (c.key === "送检单位" && oqcFlags.value.section) return false;
     if (c.key === "确认者" && oqcFlags.value.confirmer) return false;
     if (c.key === "课室负责人" && oqcFlags.value.head) return false;
-    if (c.key === "现象" && oqcFlags.value.phenomenon) return false;
+    if (c.key === "现象" && oqcFlags.value.defectGroups) return false;
     return c.kind !== "auto_id";
   })
 );
@@ -225,13 +242,30 @@ const confirmerPickerOptions = computed(() =>
 const headPickerOptions = computed(() =>
   pickerOptions(activeLookups.value.section_heads, headPicker.value)
 );
-const phenomenonPickerOptions = computed(() =>
-  buildPhenomenonPickerOptions(activeLookups.value, phenomenonPicker.value),
-);
+const locationOptions = computed(() => {
+  const field = (props.sheet?.form?.fields || []).find((f) => f.key === "不良位置");
+  const opts = [...(field?.options || [])];
+  for (const g of defectGroups.value || []) {
+    const loc = String(g.location || "").trim();
+    if (loc && !opts.includes(loc)) opts.push(loc);
+  }
+  return opts;
+});
+const inspectorOptions = computed(() => {
+  const field = (props.sheet?.form?.fields || []).find((f) => f.key === "检验员");
+  const opts = [...(field?.options || [])];
+  for (const g of defectGroups.value || []) {
+    const n = String(g.inspector || "").trim();
+    if (n && !opts.includes(n)) opts.push(n);
+  }
+  return opts;
+});
 
 async function ensureLookups() {
-  if (!props.workbookId || !oqcFlags.value.modelKey) return;
-  if (Object.keys(activeLookups.value.series_sections || {}).length) return;
+  if (!props.workbookId) return;
+  if (!oqcFlags.value.modelKey && !oqcFlags.value.defectGroups) return;
+  if (Object.keys(activeLookups.value.series_sections || {}).length &&
+      Object.keys(activeLookups.value.defect_phenomena || {}).length) return;
   try {
     const res = await authFetch(
       `/api/workbooks/${props.workbookId}/code-classifications?code_sheet=代码`
@@ -270,13 +304,12 @@ watch(
         form[f.key] = v == null ? "" : String(v);
       }
     }
-    const pickers = { section: "", confirmer: "", head: "", phenomenon: "", defectCode: "" };
-    syncOqcPickersFromRow(props.row, pickers, activeLookups.value);
+    const pickers = { section: "", confirmer: "", head: "" };
+    syncOqcPickersFromRow(props.row, pickers);
     sectionPicker.value = pickers.section || "";
     confirmerPicker.value = pickers.confirmer || "";
     headPicker.value = pickers.head || "";
-    phenomenonPicker.value = pickers.phenomenon || "";
-    if (pickers.defectCode) form["不良代码"] = pickers.defectCode;
+    defectGroups.value = parseDefectGroups(props.row);
     previewRow.value = { ...props.row };
     syncMonthFromDate(form["日期"]);
     preview();
@@ -292,7 +325,7 @@ watch(
 );
 
 function comboOptions(field) {
-  if (field.key === "机种" || field.key === "系列" || field.key === "不良代码") {
+  if (field.key === "机种" || field.key === "系列" || field.key === "现象") {
     return mergeFieldOptions(field, activeLookups.value, form[field.key]);
   }
   let opts = [...(field.options || [])];
@@ -337,19 +370,6 @@ function onFieldChange(key, value) {
     confirmerPicker.value = pickers.confirmer || "";
     headPicker.value = pickers.head || "";
   }
-  if (key === "不良代码") {
-    const pickers = { phenomenon: phenomenonPicker.value };
-    onOqcDefectChange(value, activeLookups.value, pickers);
-    phenomenonPicker.value = pickers.phenomenon || "";
-  }
-  preview();
-}
-
-function onPhenomenonPickerChange(value) {
-  phenomenonPicker.value = value == null ? "" : String(value);
-  const pickers = { defectCode: "" };
-  const code = onOqcPhenomenonChange(phenomenonPicker.value, activeLookups.value, pickers);
-  if (code) form["不良代码"] = code;
   preview();
 }
 
@@ -376,8 +396,10 @@ function payload() {
     section: sectionPicker.value,
     confirmer: confirmerPicker.value,
     head: headPicker.value,
-    phenomenon: phenomenonPicker.value,
   });
+  if (oqcFlags.value.defectGroups) {
+    Object.assign(values, serializeDefectGroups(defectGroups.value));
+  }
   return values;
 }
 
@@ -405,6 +427,12 @@ async function save() {
       message.value = `请填写 ${f.label}`;
       return;
     }
+  }
+  const defectErr = validateOqcDefectValues(props.sheet, payload(), defectGroups.value);
+  if (defectErr) {
+    ok.value = false;
+    message.value = defectErr;
+    return;
   }
   const rowId = props.row?.[props.rowKey];
   if (rowId == null) {
@@ -476,6 +504,7 @@ function close() {
 .field { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
 .field.textarea,
 .field.rich_text { grid-column: 1 / -1; }
+:deep(.defect-groups) { grid-column: 1 / -1; }
 .field i { color: var(--danger); font-style: normal; }
 .field .opt { color: var(--muted); font-style: normal; font-weight: normal; }
 input, select, textarea {
