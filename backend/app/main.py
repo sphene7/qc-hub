@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from . import store
+from . import sampling_register
 from .complaint_analytics import build_complaint_analytics
 from .inspection_analytics import build_inspection_analytics
 from .oqc_analytics import build_oqc_analytics
@@ -1140,6 +1141,193 @@ def oqc_analytics(
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     return build_oqc_analytics(item, sheet, year=year, month=month)
+
+
+# ==================== 抽检三级登记（送检 → 抽检 → 异常）====================
+
+@app.get("/api/workbooks/{wid}/sampling/entries")
+def list_sampling_entries(
+    wid: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """送检单 / 抽检单 / 异常单 三级树 + 表单候选值。"""
+    if not check_project_permission(db, wid, current_user.id, "read"):
+        raise HTTPException(403, "无权限")
+    item = store.get(wid, db)
+    if not item:
+        raise HTTPException(404, "工作簿不存在或已过期")
+    sampling_register.ensure_sheets(item, wid, db)
+    return {
+        "entries": sampling_register.load_tree(item),
+        "options": sampling_register.options(item),
+    }
+
+
+def _user_label(user: User) -> str:
+    return (user.full_name or user.username or "").strip()
+
+
+def _sampling_ctx(wid: str, current_user: User, db: Session, perm: str, message: str):
+    if not check_project_permission(db, wid, current_user.id, perm):
+        raise HTTPException(403, message)
+    item = store.get(wid, db)
+    if not item:
+        raise HTTPException(404, "工作簿不存在或已过期")
+    return item
+
+
+@app.get("/api/workbooks/{wid}/sampling/entries")
+def list_sampling_entries(
+    wid: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """送检 → 抽检 → 异常 三级树 + 表单候选值（三个登记页共用）。"""
+    item = _sampling_ctx(wid, current_user, db, "read", "无权限")
+    sampling_register.ensure_sheets(item, wid, db)
+    return {
+        "entries": sampling_register.load_tree(item),
+        "options": sampling_register.options(item),
+    }
+
+
+@app.post("/api/workbooks/{wid}/sampling/submissions")
+def create_sampling_submission(
+    wid: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """① 送检登记：新增一张送检单。"""
+    item = _sampling_ctx(wid, current_user, db, "create", "无权限录入数据")
+    try:
+        record = sampling_register.create_submission(
+            wid, item, body, current_user.id, db, user_label=_user_label(current_user)
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"submission": record, "entries": sampling_register.load_tree(item)}
+
+
+@app.put("/api/workbooks/{wid}/sampling/submissions/{sid}")
+def update_sampling_submission(
+    wid: str,
+    sid: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """① 送检登记：修改送检单。"""
+    item = _sampling_ctx(wid, current_user, db, "update", "无权限修改数据")
+    try:
+        record = sampling_register.update_submission(wid, item, sid, body, current_user.id, db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"submission": record, "entries": sampling_register.load_tree(item)}
+
+
+@app.delete("/api/workbooks/{wid}/sampling/submissions/{sid}")
+def delete_sampling_submission(
+    wid: str,
+    sid: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """① 送检登记：删除送检单（连同抽检/异常与宽表行）。"""
+    item = _sampling_ctx(wid, current_user, db, "delete", "无权限删除数据")
+    try:
+        sampling_register.delete_submission(wid, item, sid, current_user.id, db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "entries": sampling_register.load_tree(item)}
+
+
+@app.post("/api/workbooks/{wid}/sampling/submissions/{sid}/inspections")
+def add_sampling_inspection(
+    wid: str,
+    sid: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """② 抽检登记：给送检单增加一条检验员抽检记录。"""
+    item = _sampling_ctx(wid, current_user, db, "update", "无权限登记抽检")
+    try:
+        record = sampling_register.add_inspection(
+            wid, item, sid, body, current_user.id, db, user_label=_user_label(current_user)
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"inspection": record, "entries": sampling_register.load_tree(item)}
+
+
+@app.put("/api/workbooks/{wid}/sampling/inspections/{iid}")
+def update_sampling_inspection(
+    wid: str,
+    iid: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """② 抽检登记：修改一条抽检记录。"""
+    item = _sampling_ctx(wid, current_user, db, "update", "无权限修改数据")
+    try:
+        record = sampling_register.update_inspection(wid, item, iid, body, current_user.id, db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"inspection": record, "entries": sampling_register.load_tree(item)}
+
+
+@app.delete("/api/workbooks/{wid}/sampling/inspections/{iid}")
+def delete_sampling_inspection(
+    wid: str,
+    iid: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """② 抽检登记：删除一条抽检记录（连同其异常）。"""
+    item = _sampling_ctx(wid, current_user, db, "delete", "无权限删除数据")
+    try:
+        sampling_register.delete_inspection(wid, item, iid, current_user.id, db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "entries": sampling_register.load_tree(item)}
+
+
+@app.put("/api/workbooks/{wid}/sampling/inspections/{iid}/exception")
+def upsert_sampling_exception(
+    wid: str,
+    iid: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """③ 异常登记：登记/修改该抽检记录的异常处理（OA单号、对策、结案…）。"""
+    item = _sampling_ctx(wid, current_user, db, "update", "无权限登记异常")
+    try:
+        record = sampling_register.upsert_exception(
+            wid, item, iid, body, current_user.id, db, user_label=_user_label(current_user)
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"exception": record, "entries": sampling_register.load_tree(item)}
+
+
+@app.delete("/api/workbooks/{wid}/sampling/inspections/{iid}/exception")
+def delete_sampling_exception(
+    wid: str,
+    iid: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """③ 异常登记：清除该抽检记录的异常处理。"""
+    item = _sampling_ctx(wid, current_user, db, "delete", "无权限删除数据")
+    try:
+        sampling_register.delete_exception(wid, item, iid, current_user.id, db)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "entries": sampling_register.load_tree(item)}
 
 
 @app.get("/api/abnormal-monitor")

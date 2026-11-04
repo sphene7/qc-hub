@@ -9,6 +9,11 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 8088,
     strictPort: true,
+    // Windows + 中文路径下 chokidar 偶尔漏事件，改用轮询保证改动即时生效
+    watch: {
+      usePolling: true,
+      interval: 300,
+    },
     proxy: {
       "/api": {
         target: backendTarget,

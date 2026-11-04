@@ -9,7 +9,7 @@
   />
 
   <!-- Main app content -->
-  <div v-else class="page" :class="{ 'page-wide': view === 'project' && hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'oa_fill' || projectView === 'closed_loop') }">
+  <div v-else class="page" :class="{ 'page-wide': view === 'project' && hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'oa_fill' || projectView === 'closed_loop' || projectView === 'submit' || projectView === 'inspect' || projectView === 'defect') }">
     <!-- 全局上传/分析加载 -->
     <div v-if="uploading" class="global-loading">
       <div class="loading-box">
@@ -68,7 +68,7 @@
     />
 
     <!-- Project Detail View (existing stats/entry) -->
-    <main v-else-if="view === 'project' && spec" class="workspace" :class="{ 'workspace-wide': hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'oa_fill' || projectView === 'closed_loop') }">
+    <main v-else-if="view === 'project' && spec" class="workspace" :class="{ 'workspace-wide': hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'oa_fill' || projectView === 'closed_loop' || projectView === 'submit' || projectView === 'inspect' || projectView === 'defect') }">
       <div class="title-row">
         <h1>{{ spec.title }}</h1>
         <span class="pill">{{ spec.filename }}</span>
@@ -178,6 +178,27 @@
         :spec="spec"
         view-mode="analytics"
         @refresh="refreshDashboard"
+      />
+
+      <!-- 抽检三级登记：送检 → 抽检（检验员）→ 异常，三个独立页面 -->
+      <SamplingSubmitView
+        v-if="hasAiDashboard && projectView === 'submit' && isOqcProject"
+        :workbook-id="workbookId"
+        :can-create="projectPermissions.create"
+        :can-update="projectPermissions.update"
+        :can-delete="projectPermissions.delete"
+      />
+      <SamplingInspectView
+        v-if="hasAiDashboard && projectView === 'inspect' && isOqcProject"
+        :workbook-id="workbookId"
+        :can-update="projectPermissions.update"
+        :can-delete="projectPermissions.delete"
+      />
+      <SamplingDefectView
+        v-if="hasAiDashboard && projectView === 'defect' && isOqcProject"
+        :workbook-id="workbookId"
+        :can-update="projectPermissions.update"
+        :can-delete="projectPermissions.delete"
       />
 
       <!-- 抽检数据：宽表 CRUD -->
@@ -387,6 +408,9 @@ import OaSupplementView from "./OaSupplementView.vue";
 import ClosedLoopView from "./ClosedLoopView.vue";
 import AbnormalMonitorView from "./AbnormalMonitorView.vue";
 import SamplingDataView from "./SamplingDataView.vue";
+import SamplingSubmitView from "./SamplingSubmitView.vue";
+import SamplingInspectView from "./SamplingInspectView.vue";
+import SamplingDefectView from "./SamplingDefectView.vue";
 import CodeTableView from "./CodeTableView.vue";
 import DateField from "./DateField.vue";
 import LoginView from "./LoginView.vue";
@@ -589,6 +613,21 @@ const currentNavOrder = computed(() => {
 const visibleNavItems = computed(() =>
   buildVisibleNavItems(projectModuleKey.value, currentNavOrder.value, {
     dashboard: { key: "dashboard", label: dashboardNavLabel.value, show: hasAiDashboard.value },
+    submit: {
+      key: "submit",
+      label: "送检登记",
+      show: hasAiDashboard.value && isOqcProject.value,
+    },
+    inspect: {
+      key: "inspect",
+      label: "抽检登记",
+      show: hasAiDashboard.value && isOqcProject.value,
+    },
+    defect: {
+      key: "defect",
+      label: "异常登记",
+      show: hasAiDashboard.value && isOqcProject.value,
+    },
     sampling: { key: "sampling", label: "抽检数据", show: hasSamplingSheet.value },
     oa_fill: { key: "oa_fill", label: "OA补录", show: hasAiDashboard.value && isOqcProject.value },
     closed_loop: {
