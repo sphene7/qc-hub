@@ -71,7 +71,6 @@ SUB_COLUMNS = [
     _col("送检单号", "送检单号", "id"),
     _col("日期", "日期", "date", "date"),
     _col("月份", "月份", "dimension"),
-    _col("时间段", "时间段", "dimension"),
     _col("送检类型", "送检类型", "dimension"),
     _col("机种", "机种", "dimension"),
     _col("系列", "系列", "dimension"),
@@ -183,6 +182,18 @@ def ensure_sheets(item: dict[str, Any], wid: str, db: Session) -> bool:
             continue
         sheet = next(s for s in sheets if s.get("name") == name)
         current_keys = [c.get("key") for c in sheet.get("columns") or []]
+        wanted_keys = {c["key"] for c in wanted}
+        obsolete = [k for k in current_keys if k not in wanted_keys]
+        if obsolete:
+            sheet["columns"] = [c for c in sheet.get("columns") or [] if c.get("key") not in obsolete]
+            sheet["col_count"] = len(sheet["columns"])
+            df_old = item["frames"].get(name)
+            if df_old is not None and not df_old.empty:
+                drop = [k for k in obsolete if k in df_old.columns]
+                if drop:
+                    item["frames"][name] = df_old.drop(columns=drop)
+            current_keys = [c.get("key") for c in sheet.get("columns")]
+            changed = True
         if [c["key"] for c in wanted] != current_keys:
             has_rows = bool(item["frames"].get(name) is not None and not item["frames"][name].empty)
             if not has_rows:
@@ -333,8 +344,10 @@ def _defects_of(record: dict[str, Any]) -> list[dict[str, Any]]:
     return groups
 
 
-def load_tree(item: dict[str, Any]) -> list[dict[str, Any]]:
+def load_tree(item: dict[str, Any], dept: str = "") -> list[dict[str, Any]]:
     subs = _records(item, SUB_SHEET)
+    if dept:
+        subs = [s for s in subs if _text(s.get("送检单位")) == dept]
     inspections = _records(item, INSP_SHEET)
     clauses = {_text(c.get("抽检单号")): c for c in _records(item, DEF_SHEET)}
 
@@ -387,7 +400,6 @@ def options(item: dict[str, Any]) -> dict[str, list[str]]:
     return {
         "机种": uniq(column(oqc_records, "机种") + column(code_records, "机种") + column(code_records, "机种_2")),
         "送检单位": uniq(column(oqc_records, "送检单位") + column(code_records, "课室") + column(code_records, "课室_2")),
-        "时间段": uniq(column(oqc_records, "时间段") + ["8:00-12:00", "12:00-17:00", "17:00-20:00"]),
         "送检类型": uniq(column(oqc_records, "送检类型") + ["正常送检", "试做送检"]),
         "检验员": uniq(column(insp_records, "检验员") + column(oqc_records, "检验员")),
         "不良位置": uniq(locations + column(oqc_records, "不良位置")),
@@ -456,7 +468,6 @@ def _rebuild_oqc(wid, item, sub, inspections, user_id, db) -> None:
         values = {
             "日期": sub.get("日期"),
             "月份": sub.get("月份") or _month_text(_text(sub.get("日期"))),
-            "时间段": sub.get("时间段"),
             "送检类型": sub.get("送检类型"),
             "机种": sub.get("机种"),
             "送检数量": sub.get("送检数量"),
@@ -509,7 +520,7 @@ def _rebuild_oqc(wid, item, sub, inspections, user_id, db) -> None:
 # ── 送检登记 ────────────────────────────────────────────────────────────
 
 
-def create_submission(wid, item, payload, user_id, db, user_label: str = "") -> dict[str, Any]:
+def create_submission(wid, item, payload, user_id, db, user_label: str = "", dept: str = "") -> dict[str, Any]:
     ensure_sheets(item, wid, db)
     subs = _records(item, SUB_SHEET)
     existing = [_text(s.get("送检单号")) for s in subs]
@@ -522,7 +533,6 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "") -> 
         "送检单号": sid,
         "日期": day,
         "月份": _month_text(day),
-        "时间段": _text(payload.get("时间段")),
         "送检类型": _text(payload.get("送检类型")),
         "机种": _text(payload.get("机种")),
         "系列": _text(payload.get("系列")) or _text(payload.get("机种")).split("-")[0],
@@ -541,6 +551,8 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "") -> 
         raise ValueError("请填写机种")
     if _num(payload.get("送检数量")) is None:
         raise ValueError("请填写送检数量")
+    if user_label and dept:
+        record["送检单位"] = dept
 
     _fill_lookups(item, record)
     subs.append(record)
@@ -564,20 +576,21 @@ def _fill_lookups(item: dict[str, Any], record: dict[str, Any]) -> None:
             record[key] = filled.get(key)
 
 
-def update_submission(wid, item, sid, payload, user_id, db, user_label: str = "") -> dict[str, Any]:
+def update_submission(wid, item, sid, payload, user_id, db, user_label: str = "", dept: str = "") -> dict[str, Any]:
     ensure_sheets(item, wid, db)
     subs = _records(item, SUB_SHEET)
     record = next((s for s in subs if _text(s.get("送检单号")) == sid), None)
     if record is None:
         raise ValueError("送检单不存在")
+    if dept and _text(record.get("送检单位")) != dept:
+        raise ValueError("只能修改本课室的送检单")
 
     day = _date_text(payload.get("日期")) or record.get("日期")
     record.update(
         {
             "日期": day,
             "月份": _month_text(_text(day)),
-            "时间段": _text(payload.get("时间段")),
-            "送检类型": _text(payload.get("送检类型")),
+                "送检类型": _text(payload.get("送检类型")),
             "机种": _text(payload.get("机种")),
             "系列": _text(payload.get("系列")),
             "送检单位": _text(payload.get("送检单位")),
@@ -591,6 +604,8 @@ def update_submission(wid, item, sid, payload, user_id, db, user_label: str = ""
     )
     if not record["机种"]:
         raise ValueError("请填写机种")
+    if dept:
+        record["送检单位"] = dept
     _fill_lookups(item, record)
     _write(wid, item, SUB_SHEET, subs, user_id, db)
     _, inspections = _batch_of(item, sid)
@@ -598,8 +613,13 @@ def update_submission(wid, item, sid, payload, user_id, db, user_label: str = ""
     return record
 
 
-def delete_submission(wid, item, sid, user_id, db) -> None:
+def delete_submission(wid, item, sid, user_id, db, dept: str = "") -> None:
     ensure_sheets(item, wid, db)
+    target = next((s for s in _records(item, SUB_SHEET) if _text(s.get("送检单号")) == sid), None)
+    if target is None:
+        raise ValueError("送检单不存在")
+    if dept and _text(target.get("送检单位")) != dept:
+        raise ValueError("只能删除本课室的送检单")
     subs = [s for s in _records(item, SUB_SHEET) if _text(s.get("送检单号")) != sid]
     doomed = {_text(c.get("抽检单号")) for c in _records(item, INSP_SHEET) if _text(c.get("送检单号")) == sid}
     inspections = [c for c in _records(item, INSP_SHEET) if _text(c.get("送检单号")) != sid]

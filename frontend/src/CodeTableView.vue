@@ -19,6 +19,7 @@
         <button type="button" :class="{ on: oqcPage === 2 }" @click="oqcPage = 2">第二页 · 机种 · 课室</button>
         <button type="button" :class="{ on: oqcPage === 3 }" @click="oqcPage = 3">第三页 · 机种 · 负责人</button>
         <button type="button" :class="{ on: oqcPage === 4 }" @click="oqcPage = 4">第四页 · 课室负责人 · 课室</button>
+        <button type="button" :class="{ on: oqcPage === 5 }" @click="oqcPage = 5">第五页 · 部番对照</button>
       </div>
 
       <div class="oqc-overview">
@@ -292,6 +293,18 @@
           <p v-else class="empty-hint">暂无课室与课室负责人映射</p>
         </section>
         </div>
+
+      <section v-show="oqcPage === 5" class="oqc-section">
+        <header class="oqc-section-head">
+          <div>
+            <h3>部番对照 · 事业部</h3>
+            <p class="section-desc">
+              送检登记填「部番」时按这张表自动匹配「事业部」：先精确匹配部番，其次按「-」前的基型唯一匹配。
+            </p>
+          </div>
+        </header>
+        <ModelBuManagement :workbook-id="workbookId" :can-edit="canHandle" />
+      </section>
 
       <!-- OQC editors -->
       <div v-if="oqcDefectEditorOpen" class="modal-backdrop" @mousedown.self="closeOqcDefectEditor">
@@ -710,12 +723,14 @@
 import { computed, ref, watch } from "vue";
 import { authFetch } from "./api.js";
 import ComboField from "./ComboField.vue";
+import ModelBuManagement from "./ModelBuManagement.vue";
 
 const props = defineProps({
   workbookId: String,
   spec: Object,
   sheetName: { type: String, default: "代码" },
   canEdit: { type: Boolean, default: false },
+  canHandle: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["updated"]);

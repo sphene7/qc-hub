@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from . import store
 from . import sampling_register
+from . import sampling_db
 from .complaint_analytics import build_complaint_analytics
 from .inspection_analytics import build_inspection_analytics
 from .oqc_analytics import build_oqc_analytics
@@ -53,6 +54,7 @@ from .semantics import (
 )
 from .db import init_database, get_db
 from .auth import (
+    PROJECT_PERMISSION_KEYS,
     authenticate_user,
     create_access_token,
     decode_access_token,
@@ -69,7 +71,7 @@ from .auth import (
     list_all_project_permissions,
     set_user_project_permissions,
 )
-from .models import User, Project, ProjectMember
+from .models import User, Project, ProjectMember, Department, SheetData, Role, ModelBusinessUnit
 from .logutil import log, LOG_FILE
 from .sheet_util import resolve_sheet_name, sheet_row_stats
 from .abnormal_monitor import build_module_monitor
@@ -195,6 +197,7 @@ class AdminCreateUserBody(BaseModel):
     username: str
     email: Optional[str] = None
     full_name: Optional[str] = None
+    department_id: Optional[int] = None
 
 
 class CrudPermissionsBody(BaseModel):
@@ -202,6 +205,11 @@ class CrudPermissionsBody(BaseModel):
     read: bool = True
     update: bool = False
     delete: bool = False
+    # 抽检三级登记的独立权限位；缺省时后端按 update 兜底
+    submit: Optional[bool] = None   # 送检登记
+    inspect: Optional[bool] = None  # 抽检登记
+    handle: Optional[bool] = None   # 异常处理
+    dept: Optional[str] = None      # 送检数据范围（空 = 全部）
 
 
 class AdminPermissionGrantBody(BaseModel):
@@ -209,6 +217,13 @@ class AdminPermissionGrantBody(BaseModel):
     project_id: str
     permissions: CrudPermissionsBody
     role: Optional[str] = None
+    role_id: Optional[int] = None
+
+
+class RoleBody(BaseModel):
+    name: str
+    description: Optional[str] = None
+    permissions: dict = Field(default_factory=dict)
 
 
 class ChangePasswordBody(BaseModel):
@@ -221,10 +236,19 @@ class UpdateProfileBody(BaseModel):
     email: Optional[str] = None
 
 
+class AdminDepartmentBody(BaseModel):
+    name: str
+    leader: Optional[str] = None
+    sort_order: Optional[int] = None
+    active: Optional[bool] = None
+    parent_id: Optional[int] = None
+
+
 class AdminUpdateUserBody(BaseModel):
     username: Optional[str] = None
     full_name: Optional[str] = None
     email: Optional[str] = None
+    department_id: Optional[int] = None
 
 
 class UiSettingsBody(BaseModel):
@@ -541,22 +565,79 @@ def register(body: RegisterBody, db: Session = Depends(get_db)):
 # ==================== Admin Endpoints ====================
 
 @app.get("/api/admin/users")
-def list_all_users(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """List all users (super admin only)."""
+def list_all_users(
+    q: str | None = None,
+    department_id: int | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """用户列表（搜索 + 部门筛选 + 分页）。"""
     if current_user.role != 'super_admin':
         raise HTTPException(403, "需要超级管理员权限")
-    
-    users = db.query(User).all()
+
+    query = db.query(User)
+    keyword = (q or "").strip()
+    if keyword:
+        like = f"%{keyword}%"
+        query = query.filter(
+            (User.username.like(like)) | (User.full_name.like(like)) | (User.email.like(like))
+        )
+    if department_id:
+        query = query.filter(User.department_id == department_id)
+
+    total = query.count()
+    page = max(1, int(page or 1))
+    page_size = min(200, max(1, int(page_size or 20)))
+    users = query.order_by(User.id).offset((page - 1) * page_size).limit(page_size).all()
+
+    dept_map = {d.id: d.name for d in db.query(Department).all()}
     return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
         "users": [{
             "id": u.id,
             "username": u.username,
             "email": u.email,
             "full_name": u.full_name,
             "role": u.role,
+            "department_id": u.department_id,
+            "department_name": dept_map.get(u.department_id),
             "created_at": u.created_at.isoformat(),
-        } for u in users]
+        } for u in users],
     }
+
+
+class BatchDepartmentBody(BaseModel):
+    user_ids: list[int]
+    department_id: Optional[int] = None
+
+
+@app.post("/api/admin/users/batch-department")
+def batch_assign_department(
+    body: BatchDepartmentBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """批量调整用户部门（department_id 为空表示移出部门）。"""
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    if not body.user_ids:
+        raise HTTPException(400, "请选择用户")
+    dept = None
+    if body.department_id:
+        dept = db.query(Department).filter(Department.id == body.department_id).first()
+        if not dept:
+            raise HTTPException(404, "部门不存在")
+    updated = (
+        db.query(User)
+        .filter(User.id.in_(body.user_ids))
+        .update({User.department_id: dept.id if dept else None}, synchronize_session=False)
+    )
+    db.commit()
+    return {"message": f"已更新 {updated} 名用户", "updated": updated}
 
 
 @app.delete("/api/admin/users/{user_id}")
@@ -614,9 +695,12 @@ def admin_update_user(
         user.email = email
     if body.full_name is not None:
         user.full_name = body.full_name.strip() or None
+    if body.department_id is not None:
+        user.department_id = body.department_id or None
     db.commit()
     db.refresh(user)
-    return {"message": "用户信息已更新", "user": {"id": user.id, "username": user.username, "email": user.email, "full_name": user.full_name, "role": user.role, "created_at": user.created_at.isoformat()}}
+    dept = db.query(Department).filter(Department.id == user.department_id).first() if user.department_id else None
+    return {"message": "用户信息已更新", "user": {"id": user.id, "username": user.username, "email": user.email, "full_name": user.full_name, "role": user.role, "department_id": user.department_id, "department_name": dept.name if dept else None, "created_at": user.created_at.isoformat()}}
 
 
 @app.post("/api/admin/users/{user_id}/reset-password")
@@ -665,6 +749,9 @@ def admin_create_user(
         body.full_name,
         role="user",
     )
+    if body.department_id:
+        user.department_id = body.department_id
+        db.commit()
     return {
         "message": "用户已创建，初始密码为 123456",
         "user": {
@@ -731,6 +818,7 @@ def admin_upsert_permission(
         user_id=body.user_id,
         permissions=perms,
         role=body.role,
+        role_id=body.role_id,
     )
     if not ok:
         raise HTTPException(400, "无法设置权限（用户/模块不存在，或该用户为模块所有者）")
@@ -738,54 +826,477 @@ def admin_upsert_permission(
     return {"message": "权限已保存"}
 
 
-@app.delete("/api/admin/permissions")
-def admin_revoke_permission(
-    user_id: int,
-    project_id: str,
+# ==================== 部门 / 课室管理 ====================
+
+def _ensure_departments_seeded(db: Session) -> None:
+    """首次使用：从抽检项目的数据里提取课室，自动建成部门。"""
+    if db.query(Department).count():
+        return
+    names: set[str] = set()
+    project = (
+        db.query(Project).filter(Project.name.like("%抽检%")).first()
+        or db.query(Project).first()
+    )
+    if project:
+        for row in db.query(SheetData).filter(SheetData.project_id == project.id).all():
+            data = row.row_data or {}
+            for key in ("课室", "课室_2", "送检单位"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    names.add(value.strip())
+    if not names:
+        names = {"变焦一课", "变焦二课", "变焦三课", "试做课", "试验课", "红外", "消费三课"}
+    for index, name in enumerate(sorted(names)):
+        db.add(Department(name=name, sort_order=index))
+    db.commit()
+    log(f"[departments] seeded {len(names)} departments")
+
+
+@app.get("/api/admin/departments")
+def list_departments(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """部门列表（扁平 + parent_id，前端自行组树）。"""
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    _ensure_departments_seeded(db)
+    departments = db.query(Department).order_by(Department.sort_order, Department.name).all()
+    counts: dict[int, int] = {}
+    for user in db.query(User).filter(User.department_id.isnot(None)).all():
+        counts[user.department_id] = counts.get(user.department_id, 0) + 1
+    return {
+        "departments": [
+            {
+                "id": d.id,
+                "name": d.name,
+                "parent_id": d.parent_id,
+                "leader": d.leader,
+                "sort_order": d.sort_order,
+                "active": bool(d.active),
+                "user_count": counts.get(d.id, 0),
+            }
+            for d in departments
+        ]
+    }
+
+
+def _department_children(db: Session, dept_id: int) -> list[Department]:
+    return db.query(Department).filter(Department.parent_id == dept_id).all()
+
+
+def _department_descendants(db: Session, dept_id: int) -> set[int]:
+    result: set[int] = set()
+    stack = [dept_id]
+    while stack:
+        current = stack.pop()
+        for child in _department_children(db, current):
+            if child.id not in result:
+                result.add(child.id)
+                stack.append(child.id)
+    return result
+
+
+@app.post("/api/admin/departments")
+def create_department(
+    body: AdminDepartmentBody,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Remove a user's access to a workbook/module."""
     if current_user.role != "super_admin":
         raise HTTPException(403, "需要超级管理员权限")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "部门名称不能为空")
+    if db.query(Department).filter(Department.name == name).first():
+        raise HTTPException(400, "部门已存在")
+    if body.parent_id:
+        if not db.query(Department).filter(Department.id == body.parent_id).first():
+            raise HTTPException(404, "上级部门不存在")
+    dept = Department(
+        name=name,
+        parent_id=body.parent_id or None,
+        leader=(body.leader or "").strip() or None,
+        sort_order=body.sort_order or 0,
+        active=True if body.active is None else bool(body.active),
+    )
+    db.add(dept)
+    db.commit()
+    db.refresh(dept)
+    return {"department": {"id": dept.id, "name": dept.name, "parent_id": dept.parent_id,
+                           "leader": dept.leader, "sort_order": dept.sort_order,
+                           "active": bool(dept.active), "user_count": 0}}
 
-    project = db.query(Project).filter(Project.project_id == project_id).first()
-    if not project:
-        raise HTTPException(404, "模块不存在")
-    if project.owner_id == user_id:
-        raise HTTPException(400, "不能移除模块所有者的权限")
 
-    if not remove_project_member(db, project_id, user_id):
-        raise HTTPException(404, "该用户未分配此模块权限")
-
-    return {"message": "权限已移除"}
-
-
-@app.get("/api/admin/settings")
-def get_admin_settings(current_user: User = Depends(get_current_user)):
-    """Get UI settings (super admin only)."""
-    if current_user.role != "super_admin":
-        raise HTTPException(403, "需要超级管理员权限")
-    return get_ui_settings()
-
-
-@app.put("/api/admin/settings")
-def update_admin_settings(
-    body: UiSettingsBody,
+@app.put("/api/admin/departments/{dept_id}")
+def update_department(
+    dept_id: int,
+    body: AdminDepartmentBody,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """Update UI settings (super admin only)."""
     if current_user.role != "super_admin":
         raise HTTPException(403, "需要超级管理员权限")
+    dept = db.query(Department).filter(Department.id == dept_id).first()
+    if not dept:
+        raise HTTPException(404, "部门不存在")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "部门名称不能为空")
+    duplicated = db.query(Department).filter(Department.name == name, Department.id != dept_id).first()
+    if duplicated:
+        raise HTTPException(400, "部门已存在")
+    if body.parent_id is not None:
+        if body.parent_id == dept_id:
+            raise HTTPException(400, "上级部门不能是自己")
+        if body.parent_id and body.parent_id in _department_descendants(db, dept_id):
+            raise HTTPException(400, "上级部门不能是自己的下级")
+        if body.parent_id and not db.query(Department).filter(Department.id == body.parent_id).first():
+            raise HTTPException(404, "上级部门不存在")
+        dept.parent_id = body.parent_id or None
 
-    updates = body.model_dump(exclude_unset=True)
-    if not updates:
-        raise HTTPException(400, "未提供可更新的设置项")
-    saved = save_ui_settings(updates)
-    return {"settings": saved, "message": "界面设置已保存"}
+    old_name = dept.name
+    dept.name = name
+    if body.leader is not None:
+        dept.leader = body.leader.strip() or None
+    if body.sort_order is not None:
+        dept.sort_order = body.sort_order
+    if body.active is not None:
+        dept.active = bool(body.active)
+    if old_name != name:
+        for member in db.query(ProjectMember).all():
+            perms = dict(member.permissions or {})
+            if perms.get("dept") == old_name:
+                perms["dept"] = name
+                member.permissions = perms
+    db.commit()
+    return {"message": "部门已更新"}
 
 
-# ==================== Project Management Endpoints ====================
+@app.delete("/api/admin/departments/{dept_id}")
+def delete_department(dept_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    dept = db.query(Department).filter(Department.id == dept_id).first()
+    if not dept:
+        raise HTTPException(404, "部门不存在")
+    used = db.query(User).filter(User.department_id == dept_id).count()
+    if used:
+        raise HTTPException(400, f"还有 {used} 名用户属于该部门，请先调整")
+    if _department_children(db, dept_id):
+        raise HTTPException(400, "还有下级部门，请先删除或移出")
+    db.delete(dept)
+    db.commit()
+    return {"message": "部门已删除"}
+
+
+# ==================== 角色管理（RBAC） ====================
+
+DEFAULT_ROLES = [
+    {"name": "送检员", "description": "登记送检单，只看本课室", "permissions": {"read": True, "create": True, "update": True, "submit": True}},
+    {"name": "检验员", "description": "登记抽检与不良", "permissions": {"read": True, "create": True, "update": True, "inspect": True}},
+    {"name": "品质", "description": "处理异常（OA/对策/结案）", "permissions": {"read": True, "create": True, "update": True, "handle": True}},
+    {"name": "项目主管", "description": "全部权限", "permissions": {"read": True, "create": True, "update": True, "delete": True, "submit": True, "inspect": True, "handle": True}},
+    {"name": "只读", "description": "仅查看", "permissions": {"read": True}},
+]
+
+
+def _ensure_roles_seeded(db: Session) -> None:
+    if db.query(Role).count():
+        return
+    for item in DEFAULT_ROLES:
+        full = {key: bool(item["permissions"].get(key)) for key in PROJECT_PERMISSION_KEYS}
+        db.add(Role(name=item["name"], description=item["description"],
+                    permissions=full, is_system=True))
+    db.commit()
+    log(f"[roles] seeded {len(DEFAULT_ROLES)} roles")
+
+
+@app.get("/api/admin/roles")
+def list_roles(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    _ensure_roles_seeded(db)
+    usage: dict[int, int] = {}
+    for member in db.query(ProjectMember).filter(ProjectMember.role_id.isnot(None)).all():
+        usage[member.role_id] = usage.get(member.role_id, 0) + 1
+    roles = db.query(Role).order_by(Role.id).all()
+    return {
+        "roles": [
+            {
+                "id": r.id,
+                "name": r.name,
+                "description": r.description,
+                "permissions": dict(r.permissions or {}),
+                "is_system": bool(r.is_system),
+                "member_count": usage.get(r.id, 0),
+            }
+            for r in roles
+        ]
+    }
+
+
+@app.post("/api/admin/roles")
+def create_role(body: RoleBody, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "角色名称不能为空")
+    if db.query(Role).filter(Role.name == name).first():
+        raise HTTPException(400, "角色已存在")
+    full = {key: bool((body.permissions or {}).get(key)) for key in PROJECT_PERMISSION_KEYS}
+    role = Role(name=name, description=(body.description or "").strip() or None,
+                permissions=full, is_system=False)
+    db.add(role)
+    db.commit()
+    db.refresh(role)
+    return {"role": {"id": role.id, "name": role.name, "description": role.description,
+                     "permissions": dict(role.permissions or {}), "is_system": False, "member_count": 0}}
+
+
+@app.put("/api/admin/roles/{role_id}")
+def update_role(role_id: int, body: RoleBody, current_user: User = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(404, "角色不存在")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, "角色名称不能为空")
+    if db.query(Role).filter(Role.name == name, Role.id != role_id).first():
+        raise HTTPException(400, "角色已存在")
+    role.name = name
+    if body.description is not None:
+        role.description = body.description.strip() or None
+    if body.permissions:
+        role.permissions = {key: bool(body.permissions.get(key)) for key in PROJECT_PERMISSION_KEYS}
+    db.commit()
+    return {"message": "角色已更新"}
+
+
+@app.delete("/api/admin/roles/{role_id}")
+def delete_role(role_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(404, "角色不存在")
+    used = db.query(ProjectMember).filter(ProjectMember.role_id == role_id).count()
+    if used:
+        raise HTTPException(400, f"还有 {used} 个授权在使用该角色，请先调整")
+    db.delete(role)
+    db.commit()
+    return {"message": "角色已删除"}
+
+
+# ==================== 部番 → 事业部 对照（抽检专用） ====================
+
+class ModelBuBody(BaseModel):
+    model: str
+    business_unit: str
+
+
+def _model_bu_payload(db: Session, q: str | None, business_unit: str | None, page: int, page_size: int):
+    query = db.query(ModelBusinessUnit)
+    keyword = (q or "").strip()
+    if keyword:
+        like = f"%{keyword}%"
+        query = query.filter(ModelBusinessUnit.model.like(like))
+    if business_unit:
+        query = query.filter(ModelBusinessUnit.business_unit == business_unit)
+    total = query.count()
+    page = max(1, int(page or 1))
+    page_size = min(500, max(1, int(page_size or 20)))
+    rows = query.order_by(ModelBusinessUnit.model).offset((page - 1) * page_size).limit(page_size).all()
+    units = [r[0] for r in db.query(ModelBusinessUnit.business_unit).distinct().order_by(ModelBusinessUnit.business_unit).all()]
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "business_units": units,
+        "items": [
+            {"id": r.id, "model": r.model, "base_model": r.base_model, "business_unit": r.business_unit}
+            for r in rows
+        ],
+    }
+
+
+@app.get("/api/workbooks/{wid}/sampling/model-bu")
+def list_model_bu_for_project(
+    wid: str,
+    q: str | None = None,
+    business_unit: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """部番对照（抽检项目内维护）。"""
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    return _model_bu_payload(db, q, business_unit, page, page_size)
+
+
+@app.post("/api/workbooks/{wid}/sampling/model-bu")
+def create_model_bu_for_project(
+    wid: str,
+    body: ModelBuBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _sampling_ctx(wid, current_user, db, "handle", "无权限维护部番对照")
+    model = body.model.strip()
+    unit = body.business_unit.strip()
+    if not model or not unit:
+        raise HTTPException(400, "部番和事业部都不能为空")
+    if db.query(ModelBusinessUnit).filter(ModelBusinessUnit.model == model).first():
+        raise HTTPException(400, "该部番已存在")
+    row = ModelBusinessUnit(model=model, base_model=model.split("-")[0], business_unit=unit)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"item": {"id": row.id, "model": row.model, "base_model": row.base_model, "business_unit": row.business_unit}}
+
+
+@app.put("/api/workbooks/{wid}/sampling/model-bu/{item_id}")
+def update_model_bu_for_project(
+    wid: str,
+    item_id: int,
+    body: ModelBuBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _sampling_ctx(wid, current_user, db, "handle", "无权限维护部番对照")
+    row = db.query(ModelBusinessUnit).filter(ModelBusinessUnit.id == item_id).first()
+    if not row:
+        raise HTTPException(404, "记录不存在")
+    model = body.model.strip()
+    unit = body.business_unit.strip()
+    if not model or not unit:
+        raise HTTPException(400, "部番和事业部都不能为空")
+    duplicated = db.query(ModelBusinessUnit).filter(
+        ModelBusinessUnit.model == model, ModelBusinessUnit.id != item_id
+    ).first()
+    if duplicated:
+        raise HTTPException(400, "该部番已存在")
+    row.model = model
+    row.base_model = model.split("-")[0]
+    row.business_unit = unit
+    db.commit()
+    return {"message": "已更新"}
+
+
+@app.delete("/api/workbooks/{wid}/sampling/model-bu/{item_id}")
+def delete_model_bu_for_project(
+    wid: str,
+    item_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _sampling_ctx(wid, current_user, db, "handle", "无权限维护部番对照")
+    row = db.query(ModelBusinessUnit).filter(ModelBusinessUnit.id == item_id).first()
+    if not row:
+        raise HTTPException(404, "记录不存在")
+    db.delete(row)
+    db.commit()
+    return {"message": "已删除"}
+
+
+@app.get("/api/admin/model-bu")
+def list_model_bu(
+    q: str | None = None,
+    business_unit: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """部番对照列表（搜索 + 事业部筛选 + 分页）。"""
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    query = db.query(ModelBusinessUnit)
+    keyword = (q or "").strip()
+    if keyword:
+        like = f"%{keyword}%"
+        query = query.filter(ModelBusinessUnit.model.like(like))
+    if business_unit:
+        query = query.filter(ModelBusinessUnit.business_unit == business_unit)
+
+    total = query.count()
+    page = max(1, int(page or 1))
+    page_size = min(500, max(1, int(page_size or 20)))
+    rows = query.order_by(ModelBusinessUnit.model).offset((page - 1) * page_size).limit(page_size).all()
+    units = [row[0] for row in db.query(ModelBusinessUnit.business_unit).distinct().order_by(ModelBusinessUnit.business_unit).all()]
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "business_units": units,
+        "items": [
+            {
+                "id": r.id,
+                "model": r.model,
+                "base_model": r.base_model,
+                "business_unit": r.business_unit,
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.post("/api/admin/model-bu")
+def create_model_bu(body: ModelBuBody, current_user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    model = body.model.strip()
+    unit = body.business_unit.strip()
+    if not model or not unit:
+        raise HTTPException(400, "部番和事业部都不能为空")
+    if db.query(ModelBusinessUnit).filter(ModelBusinessUnit.model == model).first():
+        raise HTTPException(400, "该部番已存在")
+    row = ModelBusinessUnit(model=model, base_model=model.split("-")[0], business_unit=unit)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"item": {"id": row.id, "model": row.model, "base_model": row.base_model, "business_unit": row.business_unit}}
+
+
+@app.put("/api/admin/model-bu/{item_id}")
+def update_model_bu(item_id: int, body: ModelBuBody, current_user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    row = db.query(ModelBusinessUnit).filter(ModelBusinessUnit.id == item_id).first()
+    if not row:
+        raise HTTPException(404, "记录不存在")
+    model = body.model.strip()
+    unit = body.business_unit.strip()
+    if not model or not unit:
+        raise HTTPException(400, "部番和事业部都不能为空")
+    duplicated = db.query(ModelBusinessUnit).filter(
+        ModelBusinessUnit.model == model, ModelBusinessUnit.id != item_id
+    ).first()
+    if duplicated:
+        raise HTTPException(400, "该部番已存在")
+    row.model = model
+    row.base_model = model.split("-")[0]
+    row.business_unit = unit
+    db.commit()
+    return {"message": "已更新"}
+
+
+@app.delete("/api/admin/model-bu/{item_id}")
+def delete_model_bu(item_id: int, current_user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    row = db.query(ModelBusinessUnit).filter(ModelBusinessUnit.id == item_id).first()
+    if not row:
+        raise HTTPException(404, "记录不存在")
+    db.delete(row)
+    db.commit()
+    return {"message": "已删除"}
+
 
 @app.get("/api/projects")
 def list_projects(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1145,27 +1656,15 @@ def oqc_analytics(
 
 # ==================== 抽检三级登记（送检 → 抽检 → 异常）====================
 
-@app.get("/api/workbooks/{wid}/sampling/entries")
-def list_sampling_entries(
-    wid: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """送检单 / 抽检单 / 异常单 三级树 + 表单候选值。"""
-    if not check_project_permission(db, wid, current_user.id, "read"):
-        raise HTTPException(403, "无权限")
-    item = store.get(wid, db)
-    if not item:
-        raise HTTPException(404, "工作簿不存在或已过期")
-    sampling_register.ensure_sheets(item, wid, db)
-    return {
-        "entries": sampling_register.load_tree(item),
-        "options": sampling_register.options(item),
-    }
-
-
 def _user_label(user: User) -> str:
     return (user.full_name or user.username or "").strip()
+
+
+def _sampling_dept(wid: str, current_user: User, db: Session) -> str:
+    """当前用户在该项目的送检范围（空 = 不限制）。"""
+    access = get_project_access(db, wid, current_user.id)
+    perms = (access or {}).get("permissions") or {}
+    return str(perms.get("dept") or "").strip()
 
 
 def _sampling_ctx(wid: str, current_user: User, db: Session, perm: str, message: str):
@@ -1185,11 +1684,26 @@ def list_sampling_entries(
 ):
     """送检 → 抽检 → 异常 三级树 + 表单候选值（三个登记页共用）。"""
     item = _sampling_ctx(wid, current_user, db, "read", "无权限")
-    sampling_register.ensure_sheets(item, wid, db)
+    sampling_db.ensure_sheets(item, wid, db)
+    dept = _sampling_dept(wid, current_user, db)
     return {
-        "entries": sampling_register.load_tree(item),
-        "options": sampling_register.options(item),
+        "entries": sampling_db.load_tree(item, db, dept),
+        "options": sampling_db.options(item, db),
+        "dept": dept,
     }
+
+
+@app.get("/api/workbooks/{wid}/sampling/business-unit")
+def lookup_business_unit(
+    wid: str,
+    model: str = "",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """机种/部番 → 事业部（精确匹配，其次按基型唯一匹配）。"""
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    unit = sampling_db.resolve_business_unit(db, model)
+    return {"model": model, "business_unit": unit, "matched": bool(unit)}
 
 
 @app.post("/api/workbooks/{wid}/sampling/submissions")
@@ -1200,14 +1714,18 @@ def create_sampling_submission(
     db: Session = Depends(get_db),
 ):
     """① 送检登记：新增一张送检单。"""
-    item = _sampling_ctx(wid, current_user, db, "create", "无权限录入数据")
+    item = _sampling_ctx(wid, current_user, db, "submit", "无权限登记送检")
     try:
-        record = sampling_register.create_submission(
-            wid, item, body, current_user.id, db, user_label=_user_label(current_user)
+        record = sampling_db.create_submission(
+            wid, item, body, current_user.id, db,
+            user_label=_user_label(current_user),
+            dept=_sampling_dept(wid, current_user, db),
         )
+    except sampling_db.VersionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"submission": record, "entries": sampling_register.load_tree(item)}
+    return {"submission": record, "entries": sampling_db.load_tree(item, db)}
 
 
 @app.put("/api/workbooks/{wid}/sampling/submissions/{sid}")
@@ -1219,12 +1737,18 @@ def update_sampling_submission(
     db: Session = Depends(get_db),
 ):
     """① 送检登记：修改送检单。"""
-    item = _sampling_ctx(wid, current_user, db, "update", "无权限修改数据")
+    item = _sampling_ctx(wid, current_user, db, "submit", "无权限修改送检单")
     try:
-        record = sampling_register.update_submission(wid, item, sid, body, current_user.id, db)
+        record = sampling_db.update_submission(
+            wid, item, sid, body, current_user.id, db,
+            dept=_sampling_dept(wid, current_user, db),
+            expected_version=body.get("expected_version"),
+        )
+    except sampling_db.VersionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"submission": record, "entries": sampling_register.load_tree(item)}
+    return {"submission": record, "entries": sampling_db.load_tree(item, db)}
 
 
 @app.delete("/api/workbooks/{wid}/sampling/submissions/{sid}")
@@ -1237,10 +1761,14 @@ def delete_sampling_submission(
     """① 送检登记：删除送检单（连同抽检/异常与宽表行）。"""
     item = _sampling_ctx(wid, current_user, db, "delete", "无权限删除数据")
     try:
-        sampling_register.delete_submission(wid, item, sid, current_user.id, db)
+        sampling_db.delete_submission(
+            wid, item, sid, current_user.id, db, dept=_sampling_dept(wid, current_user, db)
+        )
+    except sampling_db.VersionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "entries": sampling_register.load_tree(item)}
+    return {"ok": True, "entries": sampling_db.load_tree(item, db)}
 
 
 @app.post("/api/workbooks/{wid}/sampling/submissions/{sid}/inspections")
@@ -1252,14 +1780,16 @@ def add_sampling_inspection(
     db: Session = Depends(get_db),
 ):
     """② 抽检登记：给送检单增加一条检验员抽检记录。"""
-    item = _sampling_ctx(wid, current_user, db, "update", "无权限登记抽检")
+    item = _sampling_ctx(wid, current_user, db, "inspect", "无权限登记抽检")
     try:
-        record = sampling_register.add_inspection(
+        record = sampling_db.add_inspection(
             wid, item, sid, body, current_user.id, db, user_label=_user_label(current_user)
         )
+    except sampling_db.VersionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"inspection": record, "entries": sampling_register.load_tree(item)}
+    return {"inspection": record, "entries": sampling_db.load_tree(item, db)}
 
 
 @app.put("/api/workbooks/{wid}/sampling/inspections/{iid}")
@@ -1271,12 +1801,17 @@ def update_sampling_inspection(
     db: Session = Depends(get_db),
 ):
     """② 抽检登记：修改一条抽检记录。"""
-    item = _sampling_ctx(wid, current_user, db, "update", "无权限修改数据")
+    item = _sampling_ctx(wid, current_user, db, "inspect", "无权限修改数据")
     try:
-        record = sampling_register.update_inspection(wid, item, iid, body, current_user.id, db)
+        record = sampling_db.update_inspection(
+            wid, item, iid, body, current_user.id, db,
+            expected_version=body.get("expected_version"),
+        )
+    except sampling_db.VersionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"inspection": record, "entries": sampling_register.load_tree(item)}
+    return {"inspection": record, "entries": sampling_db.load_tree(item, db)}
 
 
 @app.delete("/api/workbooks/{wid}/sampling/inspections/{iid}")
@@ -1289,10 +1824,12 @@ def delete_sampling_inspection(
     """② 抽检登记：删除一条抽检记录（连同其异常）。"""
     item = _sampling_ctx(wid, current_user, db, "delete", "无权限删除数据")
     try:
-        sampling_register.delete_inspection(wid, item, iid, current_user.id, db)
+        sampling_db.delete_inspection(wid, item, iid, current_user.id, db)
+    except sampling_db.VersionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "entries": sampling_register.load_tree(item)}
+    return {"ok": True, "entries": sampling_db.load_tree(item, db)}
 
 
 @app.put("/api/workbooks/{wid}/sampling/inspections/{iid}/exception")
@@ -1304,14 +1841,16 @@ def upsert_sampling_exception(
     db: Session = Depends(get_db),
 ):
     """③ 异常登记：登记/修改该抽检记录的异常处理（OA单号、对策、结案…）。"""
-    item = _sampling_ctx(wid, current_user, db, "update", "无权限登记异常")
+    item = _sampling_ctx(wid, current_user, db, "handle", "无权限登记异常")
     try:
-        record = sampling_register.upsert_exception(
+        record = sampling_db.upsert_exception(
             wid, item, iid, body, current_user.id, db, user_label=_user_label(current_user)
         )
+    except sampling_db.VersionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"exception": record, "entries": sampling_register.load_tree(item)}
+    return {"exception": record, "entries": sampling_db.load_tree(item, db)}
 
 
 @app.delete("/api/workbooks/{wid}/sampling/inspections/{iid}/exception")
@@ -1324,10 +1863,12 @@ def delete_sampling_exception(
     """③ 异常登记：清除该抽检记录的异常处理。"""
     item = _sampling_ctx(wid, current_user, db, "delete", "无权限删除数据")
     try:
-        sampling_register.delete_exception(wid, item, iid, current_user.id, db)
+        sampling_db.delete_exception(wid, item, iid, current_user.id, db)
+    except sampling_db.VersionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "entries": sampling_register.load_tree(item)}
+    return {"ok": True, "entries": sampling_db.load_tree(item, db)}
 
 
 @app.get("/api/abnormal-monitor")

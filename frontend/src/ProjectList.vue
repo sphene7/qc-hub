@@ -29,11 +29,6 @@
           </div>
           <div class="project-desc">{{ project.description }}</div>
         </div>
-        <div v-if="project.is_owner" class="project-actions">
-          <button class="btn-delete" @click.stop="deleteProject(project.id)" title="删除项目">
-            🗑️
-          </button>
-        </div>
       </div>
     </div>
   </div>
@@ -82,28 +77,6 @@ async function loadProjects() {
     }
   } finally {
     loading.value = false
-  }
-}
-
-async function deleteProject(projectId) {
-  if (!confirm('确定要删除这个项目吗？此操作不可恢复。')) {
-    return
-  }
-  
-  try {
-    const res = await authFetch(`/api/projects/${projectId}`, {
-      method: 'DELETE'
-    })
-    
-    if (!res.ok) {
-      const data = await res.json()
-      throw new Error(data.detail || '删除失败')
-    }
-    
-    // Reload projects list
-    await loadProjects()
-  } catch (err) {
-    alert('删除失败: ' + err.message)
   }
 }
 

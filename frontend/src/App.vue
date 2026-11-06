@@ -9,7 +9,7 @@
   />
 
   <!-- Main app content -->
-  <div v-else class="page" :class="{ 'page-wide': view === 'project' && hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'oa_fill' || projectView === 'closed_loop' || projectView === 'submit' || projectView === 'inspect' || projectView === 'defect') }">
+  <div v-else class="page" :class="{ 'page-wide': view === 'project' && hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'submit' || projectView === 'inspect' || projectView === 'defect') }">
     <!-- 全局上传/分析加载 -->
     <div v-if="uploading" class="global-loading">
       <div class="loading-box">
@@ -68,7 +68,7 @@
     />
 
     <!-- Project Detail View (existing stats/entry) -->
-    <main v-else-if="view === 'project' && spec" class="workspace" :class="{ 'workspace-wide': hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'oa_fill' || projectView === 'closed_loop' || projectView === 'submit' || projectView === 'inspect' || projectView === 'defect') }">
+    <main v-else-if="view === 'project' && spec" class="workspace" :class="{ 'workspace-wide': hasAiDashboard && (projectView === 'dashboard' || projectView === 'analytics' || projectView === 'sampling' || projectView === 'codes' || projectView === 'submit' || projectView === 'inspect' || projectView === 'defect') }">
       <div class="title-row">
         <h1>{{ spec.title }}</h1>
         <span class="pill">{{ spec.filename }}</span>
@@ -141,8 +141,8 @@
         :design="spec.dashboard_design"
         :spec="spec"
         view-mode="operations"
-        :can-create="projectPermissions.create"
-        :can-update="projectPermissions.update"
+        :can-create="isOqcProject ? projectPermissions.inspect : projectPermissions.create"
+        :can-update="isOqcProject ? projectPermissions.inspect : projectPermissions.update"
         :can-delete="projectPermissions.delete"
         @refresh="refreshDashboard"
       />
@@ -187,17 +187,22 @@
         :can-create="projectPermissions.create"
         :can-update="projectPermissions.update"
         :can-delete="projectPermissions.delete"
+        :can-inspect="projectPermissions.inspect"
+        :can-submit="projectPermissions.submit"
+        :dept="projectPermissions.dept"
       />
       <SamplingInspectView
         v-if="hasAiDashboard && projectView === 'inspect' && isOqcProject"
         :workbook-id="workbookId"
         :can-update="projectPermissions.update"
         :can-delete="projectPermissions.delete"
+        :can-inspect="projectPermissions.inspect"
       />
       <SamplingDefectView
         v-if="hasAiDashboard && projectView === 'defect' && isOqcProject"
         :workbook-id="workbookId"
         :can-update="projectPermissions.update"
+        :can-handle="projectPermissions.handle"
         :can-delete="projectPermissions.delete"
       />
 
@@ -217,24 +222,8 @@
         :workbook-id="workbookId"
         :spec="spec"
         :can-edit="canEditCodeTable"
+        :can-handle="!!projectPermissions.handle || currentUser?.role === 'super_admin'"
         @updated="onCodeTableUpdated"
-      />
-
-      <!-- OQC：步骤② OA 单号补录 -->
-      <OaSupplementView
-        v-if="hasAiDashboard && projectView === 'oa_fill' && isOqcProject"
-        :workbook-id="workbookId"
-        :sheet="spec.dashboard_design?.main_table?.sheet"
-        :can-update="projectPermissions.update"
-      />
-
-      <!-- OQC：步骤③ 闭环分析 -->
-      <ClosedLoopView
-        v-if="hasAiDashboard && projectView === 'closed_loop' && isOqcProject"
-        :workbook-id="workbookId"
-        :sheet="spec.dashboard_design?.main_table?.sheet"
-        :spec="spec"
-        :can-update="projectPermissions.update"
       />
 
       <!-- 无 AI 看板 / 原始分表模式 -->
@@ -404,8 +393,6 @@ import SmartDashboard from "./SmartDashboard.vue";
 import ComplaintAnalyticsView from "./ComplaintAnalyticsView.vue";
 import InspectionAnalyticsView from "./InspectionAnalyticsView.vue";
 import OqcAnalyticsView from "./OqcAnalyticsView.vue";
-import OaSupplementView from "./OaSupplementView.vue";
-import ClosedLoopView from "./ClosedLoopView.vue";
 import AbnormalMonitorView from "./AbnormalMonitorView.vue";
 import SamplingDataView from "./SamplingDataView.vue";
 import SamplingSubmitView from "./SamplingSubmitView.vue";
@@ -616,25 +603,19 @@ const visibleNavItems = computed(() =>
     submit: {
       key: "submit",
       label: "送检登记",
-      show: hasAiDashboard.value && isOqcProject.value,
+      show: hasAiDashboard.value && isOqcProject.value && projectPermissions.value.submit,
     },
     inspect: {
       key: "inspect",
       label: "抽检登记",
-      show: hasAiDashboard.value && isOqcProject.value,
+      show: hasAiDashboard.value && isOqcProject.value && projectPermissions.value.inspect,
     },
     defect: {
       key: "defect",
       label: "异常登记",
-      show: hasAiDashboard.value && isOqcProject.value,
+      show: hasAiDashboard.value && isOqcProject.value && projectPermissions.value.handle,
     },
     sampling: { key: "sampling", label: "抽检数据", show: hasSamplingSheet.value },
-    oa_fill: { key: "oa_fill", label: "OA补录", show: hasAiDashboard.value && isOqcProject.value },
-    closed_loop: {
-      key: "closed_loop",
-      label: "闭环分析",
-      show: hasAiDashboard.value && isOqcProject.value,
-    },
     analytics: { key: "analytics", label: "趋势分析", show: hasAnalyticsView.value },
     codes: { key: "codes", label: "类别管理", show: hasCodeSheet.value },
     sheets: { key: "sheets", label: "原始分表", show: showWorkbookSheetsNav.value },
@@ -656,10 +637,10 @@ const mainTableSheet = computed(() => {
 const projectPermissions = computed(() => {
   const info = currentProjectInfo.value;
   if (!info) {
-    return { create: false, read: false, update: false, delete: false };
+    return { create: false, read: false, update: false, delete: false, inspect: false, submit: false, handle: false, dept: "" };
   }
   if (info.is_owner || info.permissions == null) {
-    return { create: true, read: true, update: true, delete: true };
+    return { create: true, read: true, update: true, delete: true, inspect: true, submit: true, handle: true, dept: "" };
   }
   const p = info.permissions || {};
   return {
@@ -667,6 +648,10 @@ const projectPermissions = computed(() => {
     read: !!p.read,
     update: !!p.update,
     delete: !!p.delete,
+    inspect: p.inspect == null ? !!p.update : !!p.inspect,
+    submit: p.submit == null ? !!(p.create || p.update) : !!p.submit,
+    handle: p.handle == null ? !!p.update : !!p.handle,
+    dept: p.dept || "",
   };
 });
 

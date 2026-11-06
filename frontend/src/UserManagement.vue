@@ -8,7 +8,25 @@
       </div>
     </div>
     <div v-else class="embedded-toolbar">
-      <button class="btn-primary" @click="showCreateUser = true">创建用户</button>
+      <div class="filter-row">
+        <input v-model="q" class="search-input" placeholder="搜索用户名 / 姓名 / 邮箱" @keyup.enter="reload" />
+        <select v-model="filterDept" class="dept-filter" @change="reload">
+          <option value="">全部部门</option>
+          <option v-for="d in deptOptions" :key="d.id" :value="d.id">{{ d.label }}</option>
+        </select>
+        <button class="btn-secondary" @click="reload">查询</button>
+      </div>
+      <div class="action-row">
+        <template v-if="selectedIds.length">
+          <span class="sel-hint">已选 {{ selectedIds.length }} 人</span>
+          <select v-model="batchDept" class="dept-filter">
+            <option value="">移出部门</option>
+            <option v-for="d in deptOptions" :key="d.id" :value="d.id">{{ d.label }}</option>
+          </select>
+          <button class="btn-secondary" @click="batchAssign">批量分配部门</button>
+        </template>
+        <button class="btn-primary" @click="showCreateUser = true">创建用户</button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">加载中...</div>
@@ -18,16 +36,19 @@
       <table>
         <thead>
           <tr>
+            <th class="check-col"><input type="checkbox" :checked="allSelected" @change="toggleAll($event.target.checked)" /></th>
             <th>用户名</th>
             <th>全名</th>
             <th>邮箱</th>
             <th>角色</th>
+            <th>部门</th>
             <th>创建时间</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="user in users" :key="user.id">
+            <td class="check-col"><input type="checkbox" :checked="selectedIds.includes(user.id)" @change="toggleOne(user.id, $event.target.checked)" /></td>
             <td>{{ user.username }}</td>
             <td>{{ user.full_name || '-' }}</td>
             <td>{{ user.email || '-' }}</td>
@@ -36,6 +57,7 @@
                 {{ roleLabel(user.role) }}
               </span>
             </td>
+            <td>{{ user.department_name || '-' }}</td>
             <td>{{ formatDate(user.created_at) }}</td>
             <td>
               <div class="row-actions">
@@ -47,6 +69,12 @@
           </tr>
         </tbody>
       </table>
+      <div class="pager">
+        <span>共 {{ total }} 人</span>
+        <button class="page-btn" :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
+        <span>{{ page }} / {{ pageCount }}</span>
+        <button class="page-btn" :disabled="page >= pageCount" @click="goPage(page + 1)">下一页</button>
+      </div>
     </div>
 
     <!-- Create User Dialog -->
@@ -71,6 +99,14 @@
           <input type="email" v-model="newUser.email" placeholder="邮箱（可选）" />
         </div>
 
+        <div class="form-group">
+          <label>部门 / 课室</label>
+          <select v-model="newUser.department_id">
+            <option :value="null">未分配</option>
+            <option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</option>
+          </select>
+        </div>
+
         <div v-if="createError" class="error">{{ createError }}</div>
 
         <div class="modal-actions">
@@ -89,6 +125,12 @@
         <div class="form-group"><label>用户名 *</label><input v-model.trim="editForm.username" required maxlength="50" /></div>
         <div class="form-group"><label>显示名称</label><input v-model.trim="editForm.full_name" maxlength="100" /></div>
         <div class="form-group"><label>邮箱</label><input v-model.trim="editForm.email" type="email" maxlength="100" /></div>
+        <div class="form-group"><label>部门 / 课室</label>
+          <select v-model="editForm.department_id">
+            <option :value="null">未分配</option>
+            <option v-for="d in departments" :key="d.id" :value="d.id">{{ d.name }}</option>
+          </select>
+        </div>
         <div v-if="editError" class="error">{{ editError }}</div>
         <div class="modal-actions"><button type="button" class="btn-secondary" @click="closeEditUser">取消</button><button type="submit" class="btn-primary" :disabled="editing">{{ editing ? '保存中...' : '保存' }}</button></div>
       </form>
@@ -97,7 +139,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { authFetch } from './api.js'
 
 defineProps({
@@ -116,32 +158,126 @@ const newUser = ref({
   email: '',
   full_name: '',
   role: 'user',
+  department_id: null,
 })
 const creating = ref(false)
 const createError = ref('')
 const showEditUser = ref(false)
 const editing = ref(false)
 const editError = ref('')
-const editForm = ref({ id: null, username: '', full_name: '', email: '' })
+const editForm = ref({ id: null, username: '', full_name: '', email: '', department_id: null })
+const departments = ref([])
+const q = ref('')
+const filterDept = ref('')
+const page = ref(1)
+const pageSize = ref(20)
+const total = ref(0)
+const selectedIds = ref([])
+const batchDept = ref('')
+
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+const allSelected = computed(
+  () => users.value.length > 0 && users.value.every((u) => selectedIds.value.includes(u.id)),
+)
+const deptOptions = computed(() => {
+  const map = new Map(departments.value.map((d) => [d.id, { ...d, children: [] }]))
+  const roots = []
+  for (const d of map.values()) {
+    if (d.parent_id && map.has(d.parent_id)) map.get(d.parent_id).children.push(d)
+    else roots.push(d)
+  }
+  const sort = (list) => {
+    list.sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name, 'zh-CN'))
+    list.forEach((n) => sort(n.children))
+  }
+  sort(roots)
+  const out = []
+  const walk = (list, depth) => {
+    for (const d of list) {
+      out.push({ id: d.id, label: `${'　'.repeat(depth)}${depth ? '└ ' : ''}${d.name}` })
+      walk(d.children, depth + 1)
+    }
+  }
+  walk(roots, 0)
+  return out
+})
+
+function reload() {
+  page.value = 1
+  loadUsers()
+}
+
+function goPage(next) {
+  page.value = Math.min(Math.max(1, next), pageCount.value)
+  loadUsers()
+}
+
+function toggleOne(id, checked) {
+  const set = new Set(selectedIds.value)
+  if (checked) set.add(id)
+  else set.delete(id)
+  selectedIds.value = [...set]
+}
+
+function toggleAll(checked) {
+  selectedIds.value = checked ? users.value.map((u) => u.id) : []
+}
+
+async function batchAssign() {
+  if (!selectedIds.value.length) return
+  const deptName = deptOptions.value.find((d) => d.id === batchDept.value)?.label || '未分配'
+  if (!confirm(`把选中的 ${selectedIds.value.length} 名用户调整为「${deptName}」？`)) return
+  try {
+    const res = await authFetch('/api/admin/users/batch-department', {
+      method: 'POST',
+      body: JSON.stringify({
+        user_ids: selectedIds.value,
+        department_id: batchDept.value ? Number(batchDept.value) : null,
+      }),
+    })
+    const data = await readResponse(res)
+    if (!res.ok) throw new Error(data.detail || '批量分配失败')
+    alert(data.message || '已更新')
+    await loadUsers()
+  } catch (err) {
+    error.value = err.message
+  }
+}
 
 onMounted(() => {
   loadUsers()
+  loadDepartments()
 })
+
+async function loadDepartments() {
+  try {
+    const res = await authFetch('/api/admin/departments')
+    if (!res.ok) return
+    const data = await readResponse(res)
+    departments.value = data.departments || []
+  } catch {
+    /* 部门接口失败不影响用户列表 */
+  }
+}
 
 async function loadUsers() {
   loading.value = true
   error.value = ''
-  
+
   try {
-    // Note: This endpoint doesn't exist yet, we need to add it to backend
-    const res = await authFetch('/api/admin/users')
+    const params = new URLSearchParams({
+      page: String(page.value),
+      page_size: String(pageSize.value),
+    })
+    if (q.value.trim()) params.set('q', q.value.trim())
+    if (filterDept.value) params.set('department_id', String(filterDept.value))
+    const res = await authFetch(`/api/admin/users?${params.toString()}`)
     const data = await readResponse(res)
-    
-    if (res.ok) {
-      users.value = data.users || []
-    } else {
-      throw new Error(data.detail || '加载失败')
-    }
+
+    if (!res.ok) throw new Error(data.detail || '加载失败')
+    users.value = data.users || []
+    total.value = data.total || 0
+    selectedIds.value = []
   } catch (err) {
     error.value = err.message
   } finally {
@@ -175,6 +311,7 @@ async function createUser() {
       username: '',
       email: '',
       full_name: '',
+      department_id: null,
     }
     await loadUsers()
   } catch (err) {
@@ -204,7 +341,7 @@ async function deleteUser(userId) {
 }
 
 async function editUser(user) {
-  editForm.value = { id: user.id, username: user.username, full_name: user.full_name || '', email: user.email || '' }
+  editForm.value = { id: user.id, username: user.username, full_name: user.full_name || '', email: user.email || '', department_id: user.department_id ?? null }
   editError.value = ''
   showEditUser.value = true
 }
@@ -259,6 +396,55 @@ async function readResponse(res) {
 </script>
 
 <style scoped>
+.embedded-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.filter-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.search-input {
+  width: 240px;
+  padding: 8px 12px;
+  border: 1px solid #dce1d6;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.search-input:focus { outline: none; border-color: #9dbb8a; box-shadow: 0 0 0 3px rgba(84, 130, 53, 0.12); }
+.dept-filter {
+  padding: 7px 10px;
+  border: 1px solid #dce1d6;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+  min-width: 140px;
+}
+.action-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sel-hint { font-size: 12.5px; color: #3f6427; background: #eef6ea; padding: 4px 10px; border-radius: 999px; }
+.check-col { width: 40px; text-align: center; }
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid #f0f2ee;
+  font-size: 12.5px;
+  color: #6f756c;
+}
+.page-btn {
+  padding: 4px 10px;
+  border: 1px solid #dce1d6;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.page-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.users-table { background: #fff; border: 1px solid #e6e8e3; border-radius: 12px; overflow: hidden; }
+
 .user-management {
   max-width: 1200px;
   margin: 40px auto;
@@ -476,4 +662,46 @@ tbody tr:last-child td {
   justify-content: flex-end;
   margin-top: 24px;
 }
+
+/* Ant Design Pro 风格：紧凑表格 + 中性色 */
+.users-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.users-table thead th {
+  background: #fafbf8 !important;
+  color: #5a6057 !important;
+  font-weight: 600 !important;
+  font-size: 12.5px;
+  padding: 10px 14px !important;
+  border-bottom: 1px solid #eef0ec !important;
+  text-align: left;
+  white-space: nowrap;
+}
+.users-table tbody td {
+  padding: 10px 14px !important;
+  border-bottom: 1px solid #f4f6f2 !important;
+  font-size: 13px;
+  color: #2b3028;
+  background: #fff;
+}
+.users-table tbody tr:hover td { background: #f9fbf7 !important; }
+.users-table .role-badge {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  background: #eef0ec !important;
+  color: #5a6157 !important;
+}
+.users-table .role-badge.super_admin { background: #e6f4df !important; color: #3a6b28 !important; }
+.embedded-toolbar .btn-primary { background: #548235 !important; border-color: #548235 !important; color: #fff !important; }
+.embedded-toolbar .btn-secondary { background: #fff !important; border: 1px solid #d6dbcf !important; color: #444 !important; }
+.users-table .btn-sm {
+  background: #fff !important;
+  border: 1px solid #e2e6dd !important;
+  color: #4b5247 !important;
+  border-radius: 6px;
+  padding: 3px 9px !important;
+  font-size: 12px !important;
+}
+.users-table .btn-sm:hover { border-color: #9dbb8a !important; color: #3f6427 !important; }
+.users-table .btn-sm.btn-danger { color: #c0392b !important; border-color: #f0d5d0 !important; }
 </style>

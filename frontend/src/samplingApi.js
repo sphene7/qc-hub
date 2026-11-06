@@ -102,7 +102,7 @@ export function meName() {
 
 /** 关键字 + 日期区间 过滤。 */
 export function inRange(day, from, to) {
-  const d = String(day || "");
+  const d = String(day || "").slice(0, 10);
   if (from && d && d < from) return false;
   if (to && d && d > to) return false;
   return true;

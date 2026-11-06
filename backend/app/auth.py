@@ -7,7 +7,7 @@ import hashlib
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from sqlalchemy.orm import Session
-from app.models import User, Project, ProjectMember
+from app.models import User, Project, ProjectMember, Role
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -78,11 +78,19 @@ def create_user(db: Session, username: str, password: str, email: str = None,
     return user
 
 
-FULL_CRUD = {"create": True, "read": True, "update": True, "delete": True}
+# 权限位：
+#   create/update/delete —— 通用增删改（巡检、客诉等模块共用）
+#   submit   —— 送检登记（新增/修改送检单）
+#   inspect  —— 抽检登记（新增/修改抽检记录）
+#   handle   —— 异常登记（OA单号、责任、对策、结案）
+#   dept     —— 非布尔：送检数据范围（空 = 全部；填了课室 = 只看本课室）
+PROJECT_PERMISSION_KEYS = ("create", "read", "update", "delete", "submit", "inspect", "handle")
+
+FULL_CRUD = {key: True for key in PROJECT_PERMISSION_KEYS}
 
 DEFAULT_PERMISSIONS_BY_ROLE = {
-    "read": {"create": False, "read": True, "update": False, "delete": False},
-    "entry": {"create": True, "read": True, "update": True, "delete": True},
+    "read": {**{key: False for key in PROJECT_PERMISSION_KEYS}, "read": True},
+    "entry": dict(FULL_CRUD),
     "admin": dict(FULL_CRUD),
 }
 
@@ -91,17 +99,25 @@ def normalize_crud_permissions(
     permissions: dict[str, Any] | None,
     *,
     role: str = "read",
-) -> dict[str, bool]:
+) -> dict[str, Any]:
     """Merge stored JSON permissions with role defaults."""
     base = dict(DEFAULT_PERMISSIONS_BY_ROLE.get(role, DEFAULT_PERMISSIONS_BY_ROLE["read"]))
-    if permissions and isinstance(permissions, dict):
-        for key in ("create", "read", "update", "delete"):
-            if key in permissions:
-                base[key] = bool(permissions[key])
+    provided = permissions if isinstance(permissions, dict) else {}
+    for key in PROJECT_PERMISSION_KEYS:
+        if key in provided:
+            base[key] = bool(provided[key])
+    # 旧数据兼容：没有新权限位时，按「改」推断，保持原有行为
+    if "submit" not in provided:
+        base["submit"] = bool(base.get("create") or base.get("update"))
+    if "inspect" not in provided:
+        base["inspect"] = bool(base.get("update"))
+    if "handle" not in provided:
+        base["handle"] = bool(base.get("update"))
     if not base["read"]:
-        base["create"] = False
-        base["update"] = False
-        base["delete"] = False
+        for key in PROJECT_PERMISSION_KEYS:
+            if key != "read":
+                base[key] = False
+    base["dept"] = str(provided.get("dept") or "").strip()
     return base
 
 
@@ -156,6 +172,13 @@ def get_project_access(
         return None
 
     perms = normalize_crud_permissions(membership.permissions, role=membership.role)
+    if membership.role_id:
+        role = db.query(Role).filter(Role.id == membership.role_id).first()
+        if role:
+            role_perms = {key: bool((role.permissions or {}).get(key)) for key in PROJECT_PERMISSION_KEYS}
+            dept = str(perms.get("dept") or "")
+            perms = normalize_crud_permissions(role_perms, role=membership.role)
+            perms["dept"] = dept
     can_manage = membership.role == "admin"
     return {
         "role": membership.role,
@@ -192,6 +215,12 @@ def check_project_permission(
         return bool(perms.get("create"))
     if required_role == "update":
         return bool(perms.get("update"))
+    if required_role == "submit":
+        return bool(perms.get("submit"))
+    if required_role == "inspect":
+        return bool(perms.get("inspect"))
+    if required_role == "handle":
+        return bool(perms.get("handle"))
     if required_role == "delete":
         return bool(perms.get("delete"))
     if required_role == "entry":
@@ -254,6 +283,7 @@ def add_project_member(
     user_id: int,
     role: str = "read",
     permissions: dict[str, Any] | None = None,
+    role_id: int | None = None,
 ) -> bool:
     """Add or update a member on a project."""
     project = db.query(Project).filter(Project.project_id == project_id).first()
@@ -270,12 +300,14 @@ def add_project_member(
     if existing:
         existing.role = role
         existing.permissions = perms
+        existing.role_id = role_id
     else:
         member = ProjectMember(
             project_id=project.id,
             user_id=user_id,
             role=role,
             permissions=perms,
+            role_id=role_id,
         )
         db.add(member)
 
@@ -290,6 +322,7 @@ def set_user_project_permissions(
     user_id: int,
     permissions: dict[str, Any],
     role: str | None = None,
+    role_id: int | None = None,
 ) -> bool:
     """Super-admin: grant or update CRUD permissions on a workbook/module."""
     project = db.query(Project).filter(Project.project_id == project_wid).first()
@@ -302,20 +335,28 @@ def set_user_project_permissions(
     if not user or user.role == "super_admin":
         return False
 
-    perms = {
-        "create": bool(permissions.get("create")),
-        "read": bool(permissions.get("read")),
-        "update": bool(permissions.get("update")),
-        "delete": bool(permissions.get("delete")),
-    }
+    raw = permissions or {}
+    perms = {key: bool(raw.get(key)) for key in PROJECT_PERMISSION_KEYS}
+    # 旧前端没传新权限位时，按「改」推断，保持兼容
+    if raw.get("submit") is None:
+        perms["submit"] = bool(perms["create"] or perms["update"])
+    if raw.get("inspect") is None:
+        perms["inspect"] = bool(perms["update"])
+    if raw.get("handle") is None:
+        perms["handle"] = bool(perms["update"])
+    # 任一登记权限都视为可写（巡检/客诉仍走 create/update）
+    if perms["submit"] or perms["inspect"] or perms["handle"]:
+        perms["create"] = True
+        perms["update"] = True
     if not perms["read"]:
-        perms = {"create": False, "read": False, "update": False, "delete": False}
+        perms = {key: False for key in PROJECT_PERMISSION_KEYS}
+    perms["dept"] = str(raw.get("dept") or "").strip()
 
     resolved_role = role or infer_role_from_permissions(perms)
     if resolved_role not in ("read", "entry", "admin"):
         resolved_role = infer_role_from_permissions(perms)
 
-    return add_project_member(db, project_wid, user_id, resolved_role, perms)
+    return add_project_member(db, project_wid, user_id, resolved_role, perms, role_id=role_id)
 
 
 def list_all_project_permissions(db: Session) -> list[dict[str, Any]]:
@@ -327,8 +368,16 @@ def list_all_project_permissions(db: Session) -> list[dict[str, Any]]:
         .order_by(User.username, Project.name)
         .all()
     )
+    roles = {r.id: r for r in db.query(Role).all()}
     out = []
     for membership, project, user in rows:
+        perms = normalize_crud_permissions(membership.permissions, role=membership.role)
+        role = roles.get(membership.role_id) if membership.role_id else None
+        if role is not None:
+            dept = str(perms.get("dept") or "")
+            role_perms = {key: bool((role.permissions or {}).get(key)) for key in PROJECT_PERMISSION_KEYS}
+            perms = normalize_crud_permissions(role_perms, role=membership.role)
+            perms["dept"] = dept
         out.append(
             {
                 "user_id": user.id,
@@ -338,7 +387,9 @@ def list_all_project_permissions(db: Session) -> list[dict[str, Any]]:
                 "project_name": project.name,
                 "owner_id": project.owner_id,
                 "role": membership.role,
-                "permissions": normalize_crud_permissions(membership.permissions, role=membership.role),
+                "role_id": membership.role_id,
+                "role_name": role.name if role else None,
+                "permissions": perms,
             }
         )
     return out

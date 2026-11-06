@@ -1,114 +1,233 @@
 <template>
-  <div class="page-block">
-    <div class="toolbar card">
-      <div>
-        <h2>③ 异常登记</h2>
-        <p class="hint">
-          对 NG 的抽检记录做异常处理：OA 单号、责任归属、对策、根因、结案。不良明细已经在「② 抽检登记」里登记。
-        </p>
+  <div class="smp-page">
+    <div class="smp-toolbar card">
+      <div class="smp-stats">
+        <span class="smp-stat warn">未处理 <strong>{{ openCount }}</strong> 条</span>
+        <span class="smp-stat">处理中 <strong>{{ doingCount }}</strong> 条</span>
+        <span class="smp-stat">已结案 <strong>{{ closedCount }}</strong> 条</span>
       </div>
-      <div class="toolbar-right">
-        <span class="stat">未处理 <strong>{{ openCount }}</strong> 条</span>
-        <button type="button" class="ghost-btn" :disabled="loading" @click="load">刷新</button>
-      </div>
+      <span class="smp-spacer"></span>
+      <button type="button" class="smp-btn smp-btn-ghost" :disabled="loading" @click="load">刷新</button>
     </div>
 
-    <div v-if="notice" class="notice card">{{ notice }}</div>
-    <div v-if="error" class="error-hint card">{{ error }}</div>
+    <div v-if="notice" class="smp-notice">{{ notice }}</div>
+    <div v-if="error" class="smp-error">{{ error }}</div>
 
-    <div class="card filters">
-      <input v-model="filters.keyword" class="search" placeholder="搜索 单号 / 机种 / 检验员 / OA单号 / 责任单位" />
-      <label>日期 <input v-model="filters.from" type="date" /> ~ <input v-model="filters.to" type="date" /></label>
-      <label class="check"><input v-model="filters.ngOnly" type="checkbox" /> 只看 NG</label>
-      <label class="check"><input v-model="filters.mine" type="checkbox" /> 只看我的</label>
-      <button type="button" class="link-btn" @click="resetFilters">清空</button>
-      <span class="count">共 {{ filtered.length }} 条</span>
+    <div class="smp-filters card">
+      <div class="smp-search">
+        <input v-model="filters.keyword" placeholder="搜索 单号 / 机种 / 检验员 / OA单号 / 责任单位" />
+      </div>
+      <div class="smp-seg">
+        <button
+          v-for="opt in statusOptions"
+          :key="opt.key"
+          type="button"
+          :class="{ active: statusFilter === opt.key }"
+          @click="statusFilter = opt.key"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+      <div class="smp-seg">
+        <button
+          v-for="opt in presetOptions"
+          :key="opt.key"
+          type="button"
+          :class="{ active: preset === opt.key }"
+          @click="applyPreset(opt.key)"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+      <label class="smp-daterange">
+        日期
+        <input v-model="filters.from" type="date" @change="preset = ''" />
+        ~
+        <input v-model="filters.to" type="date" @change="preset = ''" />
+      </label>
+      <label class="smp-check">
+        <input v-model="filters.ngOnly" type="checkbox" />
+        只看 NG
+      </label>
+      <label class="smp-check">
+        <input v-model="filters.mine" type="checkbox" />
+        只看我的
+      </label>
+      <button type="button" class="smp-reset" @click="resetFilters">清空</button>
+      <span class="smp-count">共 {{ filtered.length }} 条</span>
     </div>
 
-    <div class="card table-card">
-      <table>
-        <thead>
-          <tr>
-            <th>抽检单号</th>
-            <th>日期</th>
-            <th>机种</th>
-            <th>检验员</th>
-            <th>判定</th>
-            <th class="num">不良数量</th>
-            <th>OA单号</th>
-            <th>责任单位</th>
-            <th>结案日期</th>
-            <th>状态</th>
-            <th class="ops">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="loading"><td colspan="11" class="empty">加载中…</td></tr>
-          <tr v-else-if="!filtered.length"><td colspan="11" class="empty">没有符合条件的记录</td></tr>
-          <template v-else>
-            <tr v-for="c in filtered" :key="c.抽检单号">
-              <td class="mono">{{ c.抽检单号 }}</td>
-              <td>{{ c.日期 }}</td>
-              <td>{{ c.机种 || "-" }}</td>
-              <td>{{ c.检验员 }}</td>
-              <td>
-                <span class="badge" :class="isNg(c.判定) ? 'badge-bad' : 'badge-ok'">{{ c.判定 || "-" }}</span>
-              </td>
-              <td class="num">{{ c.不良数量 ?? "-" }}</td>
-              <td>{{ c.异常处理?.OA单号 || "-" }}</td>
-              <td>{{ c.异常处理?.责任单位 || "-" }}</td>
-              <td>{{ c.异常处理?.结案日期 || "-" }}</td>
-              <td>
-                <span class="badge" :class="statusOf(c).cls">{{ statusOf(c).label }}</span>
-              </td>
-              <td class="ops">
-                <button type="button" class="link-btn" @click="openEdit(c)">
-                  {{ c.异常处理 ? "修改" : "处理" }}
-                </button>
-                <button
-                  v-if="c.异常处理 && canDelete"
-                  type="button"
-                  class="link-btn danger"
-                  @click="clear(c)"
-                >
-                  清除
-                </button>
+    <div class="card smp-table-card">
+      <div class="smp-table-wrap">
+        <table class="smp-table">
+          <thead>
+            <tr>
+              <th class="ops">操作</th>
+              <th>抽检单号</th>
+              <th>日期</th>
+              <th>部番</th>
+              <th>机种</th>
+              <th>事业部</th>
+              <th>检验员</th>
+              <th>判定</th>
+              <th class="num">不良数量</th>
+              <th>OA单号</th>
+              <th>责任单位</th>
+              <th>结案日期</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-if="loading"><td colspan="13"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-else-if="!filtered.length">
+              <td colspan="13">
+                <div class="smp-empty">
+                  <span class="smp-empty-icon">✅</span>
+                  没有符合条件的记录
+                </div>
               </td>
             </tr>
-          </template>
-        </tbody>
-      </table>
+            <template v-else>
+              <tr v-for="c in filtered" :key="c.抽检单号" class="clickable" @click="openEdit(c)">
+                <td class="ops" @click.stop>
+                  <button v-if="canHandle" type="button" class="smp-link" @click="openEdit(c)">
+                    {{ c.异常处理 ? "修改" : "处理" }}
+                  </button>
+                  <button
+                    v-if="c.异常处理 && canDelete"
+                    type="button"
+                    class="smp-link danger"
+                    @click="clear(c)"
+                  >
+                    清除
+                  </button>
+                </td>
+                <td class="mono">{{ c.抽检单号 }}</td>
+                <td>{{ c.日期 }}</td>
+                <td class="mono">{{ c.部番 || c.机种 || "-" }}</td>
+                <td>{{ c.机种 || "-" }}</td>
+                <td>{{ c.事业部 || "-" }}</td>
+                <td>{{ c.检验员 }}</td>
+                <td>
+                  <span class="smp-badge" :class="isNg(c.判定) ? 'smp-badge-bad' : 'smp-badge-ok'">
+                    {{ c.判定 || "-" }}
+                  </span>
+                </td>
+                <td class="num">{{ c.不良数量 ?? "-" }}</td>
+                <td>{{ c.异常处理?.OA单号 || "-" }}</td>
+                <td>{{ c.异常处理?.责任单位 || "-" }}</td>
+                <td>{{ c.异常处理?.结案日期 || "-" }}</td>
+                <td>
+                  <span class="smp-badge" :class="statusOf(c).cls">{{ statusOf(c).label }}</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
     </div>
 
-    <div v-if="modal.open" class="overlay" @click.self="closeModal">
-      <div class="modal">
-        <div class="modal-head">
+    <div v-if="modal.open" class="smp-overlay" @click.self="closeModal">
+      <div class="smp-modal">
+        <div class="smp-modal-head">
           <h3>异常处理 · {{ modal.id }}</h3>
-          <button type="button" class="link-btn" @click="closeModal">✕</button>
+          <button type="button" class="smp-modal-close" @click="closeModal">✕</button>
         </div>
+        <div class="smp-modal-body">
+          <div class="smp-fixed-info">
+            {{ form.sid }} · {{ form.machine }} · 检验员 {{ form.inspector }} · 判定 {{ form.judge }} ·
+            不良 {{ form.qty || "-" }}
+          </div>
 
-        <div class="fixed-info">
-          {{ form.sid }} · {{ form.machine }} · 检验员 {{ form.inspector }} · 判定 {{ form.judge }} ·
-          不良 {{ form.qty || "-" }}
+          <div class="smp-section">
+            <p class="smp-section-title">问题描述（来自抽检不良）</p>
+            <div v-if="form.defects.length" class="defect-list">
+              <div v-for="(d, i) in form.defects" :key="i" class="defect-item">
+                <span class="idx">{{ i + 1 }}</span>
+                <span class="attr">{{ d.不良属性 || '-' }}</span>
+                <span>{{ d.不良位置 || '-' }}</span>
+                <span>{{ d.现象 || '-' }}</span>
+                <span class="qty">×{{ d.数量 ?? '-' }}</span>
+              </div>
+            </div>
+            <p v-else class="smp-hint">这次抽检没有不良记录</p>
+            <div class="smp-chips" style="margin-top: 10px">
+              <span>判定<strong :class="isNg(form.judge) ? 'bad' : 'ok'">{{ form.judge || '-' }}</strong></span>
+              <span>不良数量<strong>{{ form.qty || 0 }}</strong></span>
+            </div>
+          </div>
+
+          <div class="smp-section">
+            <p class="smp-section-title">责任与结案</p>
+            <div class="smp-grid">
+              <label class="smp-field">
+                <span>OA单号</span>
+                <input ref="firstInput" v-model="form.OA单号" />
+              </label>
+              <label class="smp-field">
+                <span>指定质控公司</span>
+                <input v-model="form.指定质控公司" />
+              </label>
+              <label class="smp-field">
+                <span>责任单位</span>
+                <input v-model="form.责任单位" list="opt-送检单位" />
+              </label>
+              <label class="smp-field">
+                <span>责任人</span>
+                <input v-model="form.责任人" />
+              </label>
+              <label class="smp-field">
+                <span>确认者</span>
+                <input v-model="form.确认者" />
+              </label>
+              <label class="smp-field">
+                <span>课室负责人</span>
+                <input v-model="form.课室负责人" />
+              </label>
+              <label class="smp-field">
+                <span>责任课级负责人</span>
+                <input v-model="form.责任课级负责人" />
+              </label>
+              <label class="smp-field">
+                <span>品质工程师</span>
+                <input v-model="form.品质工程师" />
+              </label>
+              <label class="smp-field">
+                <span>结案日期</span>
+                <input v-model="form.结案日期" type="date" />
+              </label>
+              <label class="smp-field">
+                <span>结案天数（自动）</span>
+                <input :value="form.结案天数 ?? '保存后按送检日期计算'" readonly class="readonly" />
+              </label>
+            </div>
+          </div>
+
+          <div class="smp-section">
+            <p class="smp-section-title">对策与验证（可插入图片）</p>
+            <label class="smp-field full rich-field">
+              <span>临时对策</span>
+              <RichTextField v-model="form.临时对策" :rows="3" placeholder="文字或粘贴/插入图片" />
+            </label>
+            <label class="smp-field full rich-field">
+              <span>根因分析</span>
+              <RichTextField v-model="form.根因分析" :rows="3" placeholder="文字或粘贴/插入图片" />
+            </label>
+            <label class="smp-field full rich-field">
+              <span>永久对策</span>
+              <RichTextField v-model="form.永久对策" :rows="3" placeholder="文字或粘贴/插入图片" />
+            </label>
+            <label class="smp-field full rich-field">
+              <span>改善后确认</span>
+              <RichTextField v-model="form.改善后确认" :rows="3" placeholder="文字或粘贴/插入图片" />
+            </label>
+          </div>
+
+          <div v-if="modal.error" class="smp-modal-error">{{ modal.error }}</div>
         </div>
-
-        <div class="grid">
-          <label class="field"><span>OA单号</span><input v-model="form.OA单号" /></label>
-          <label class="field"><span>指定质控公司</span><input v-model="form.指定质控公司" /></label>
-          <label class="field"><span>责任单位</span><input v-model="form.责任单位" list="opt-送检单位" /></label>
-          <label class="field"><span>责任人</span><input v-model="form.责任人" /></label>
-          <label class="field"><span>结案日期</span><input v-model="form.结案日期" type="date" /></label>
-        </div>
-
-        <label class="field block"><span>临时对策</span><textarea v-model="form.临时对策" rows="2" /></label>
-        <label class="field block"><span>根因分析</span><textarea v-model="form.根因分析" rows="2" /></label>
-        <label class="field block"><span>永久对策</span><textarea v-model="form.永久对策" rows="2" /></label>
-        <label class="field block"><span>改善后确认</span><textarea v-model="form.改善后确认" rows="2" /></label>
-
-        <div v-if="modal.error" class="modal-error">{{ modal.error }}</div>
-        <div class="modal-actions">
-          <button type="button" class="ghost-btn" @click="closeModal">取消</button>
-          <button type="button" class="primary-btn" :disabled="saving" @click="save">
+        <div class="smp-modal-foot">
+          <button type="button" class="smp-btn smp-btn-ghost" @click="closeModal">取消</button>
+          <button type="button" class="smp-btn smp-btn-primary" :disabled="saving" @click="save">
             {{ saving ? "保存中…" : "保存" }}
           </button>
         </div>
@@ -120,7 +239,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import RichTextField from "./RichTextField.vue";
 import {
   deleteException,
   flattenInspections,
@@ -135,6 +255,7 @@ const props = defineProps({
   workbookId: String,
   canUpdate: { type: Boolean, default: false },
   canDelete: { type: Boolean, default: false },
+  canHandle: { type: Boolean, default: false },
 });
 
 const loading = ref(true);
@@ -144,24 +265,65 @@ const notice = ref("");
 const entries = ref([]);
 const options = ref({});
 const filters = ref({ keyword: "", from: "", to: "", mine: false, ngOnly: true });
+const statusFilter = ref("all");
+const preset = ref("");
 const modal = ref({ open: false, id: "", error: "" });
 const form = ref(blankForm());
+const firstInput = ref(null);
+
+const statusOptions = [
+  { key: "all", label: "全部" },
+  { key: "open", label: "未处理" },
+  { key: "doing", label: "处理中" },
+  { key: "closed", label: "已结案" },
+];
+const presetOptions = [
+  { key: "", label: "不限日期" },
+  { key: "today", label: "今天" },
+  { key: "7d", label: "近7天" },
+  { key: "month", label: "本月" },
+];
 
 const rows = computed(() => flattenInspections(entries.value));
 const isNg = (judge) => String(judge || "").toUpperCase().startsWith("NG");
 const statusOf = (c) => {
-  if (!c.异常处理) return { label: "未处理", cls: "badge-muted" };
-  if (c.异常处理.结案日期) return { label: "已结案", cls: "badge-ok" };
-  return { label: "处理中", cls: "badge-warn" };
+  if (!c.异常处理) return { key: "open", label: "未处理", cls: "smp-badge-muted" };
+  if (c.异常处理.结案日期) return { key: "closed", label: "已结案", cls: "smp-badge-ok" };
+  return { key: "doing", label: "处理中", cls: "smp-badge-warn" };
 };
-const openCount = computed(
-  () => rows.value.filter((c) => isNg(c.判定) && !c.异常处理).length,
-);
+const openCount = computed(() => rows.value.filter((c) => isNg(c.判定) && !c.异常处理).length);
+const doingCount = computed(() => rows.value.filter((c) => statusOf(c).key === "doing").length);
+const closedCount = computed(() => rows.value.filter((c) => statusOf(c).key === "closed").length);
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function applyPreset(key) {
+  preset.value = key;
+  const now = new Date();
+  if (key === "today") {
+    filters.value.from = isoDate(now);
+    filters.value.to = isoDate(now);
+  } else if (key === "7d") {
+    const start = new Date(now);
+    start.setDate(start.getDate() - 6);
+    filters.value.from = isoDate(start);
+    filters.value.to = isoDate(now);
+  } else if (key === "month") {
+    filters.value.from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    filters.value.to = isoDate(now);
+  } else {
+    filters.value.from = "";
+    filters.value.to = "";
+  }
+}
 
 const filtered = computed(() =>
   rows.value.filter((c) => {
     if (filters.value.ngOnly && !isNg(c.判定)) return false;
     if (!inRange(c.日期, filters.value.from, filters.value.to)) return false;
+    if (statusFilter.value !== "all" && statusOf(c).key !== statusFilter.value) return false;
     if (filters.value.mine && (c.异常处理?.登记人 || "") !== meName()) return false;
     return matchKeyword(
       filters.value.keyword,
@@ -186,11 +348,17 @@ function blankForm() {
     指定质控公司: "",
     责任单位: "",
     责任人: "",
+    确认者: "",
+    课室负责人: "",
+    责任课级负责人: "",
+    品质工程师: "",
     临时对策: "",
     根因分析: "",
     永久对策: "",
     改善后确认: "",
     结案日期: "",
+    结案天数: null,
+    defects: [],
   };
 }
 
@@ -217,6 +385,7 @@ async function load() {
 }
 
 function openEdit(c) {
+  if (!props.canHandle) return;
   const ex = c.异常处理 || {};
   form.value = {
     sid: c.送检单号,
@@ -229,11 +398,17 @@ function openEdit(c) {
     指定质控公司: ex.指定质控公司 || "",
     责任单位: ex.责任单位 || "",
     责任人: ex.责任人 || "",
+    确认者: ex.确认者 || "",
+    课室负责人: ex.课室负责人 || "",
+    责任课级负责人: ex.责任课级负责人 || "",
+    品质工程师: ex.品质工程师 || "",
     临时对策: ex.临时对策 || "",
     根因分析: ex.根因分析 || "",
     永久对策: ex.永久对策 || "",
     改善后确认: ex.改善后确认 || "",
     结案日期: ex.结案日期 || "",
+    结案天数: ex.结案天数 ?? null,
+    defects: c.不良组 || [],
   };
   modal.value = { open: true, id: c.抽检单号, error: "" };
 }
@@ -244,6 +419,8 @@ function closeModal() {
 
 function resetFilters() {
   filters.value = { keyword: "", from: "", to: "", mine: false, ngOnly: true };
+  statusFilter.value = "all";
+  preset.value = "";
 }
 
 async function save() {
@@ -255,6 +432,10 @@ async function save() {
       指定质控公司: form.value.指定质控公司,
       责任单位: form.value.责任单位,
       责任人: form.value.责任人,
+      确认者: form.value.确认者,
+      课室负责人: form.value.课室负责人,
+      责任课级负责人: form.value.责任课级负责人,
+      品质工程师: form.value.品质工程师,
       临时对策: form.value.临时对策,
       根因分析: form.value.根因分析,
       永久对策: form.value.永久对策,
@@ -283,54 +464,23 @@ async function clear(c) {
   }
 }
 
-onMounted(load);
-</script>
+watch(
+  () => modal.value.open,
+  async (open) => {
+    if (open) {
+      await nextTick();
+      firstInput.value?.focus?.();
+    }
+  },
+);
 
-<style scoped>
-.page-block { display: flex; flex-direction: column; gap: 12px; }
-.toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
-.toolbar h2 { margin: 0 0 4px; font-size: 18px; }
-.toolbar p { margin: 0; max-width: 700px; }
-.toolbar-right { display: flex; gap: 8px; align-items: center; }
-.stat { font-size: 12px; color: #666; background: #f4f6f2; padding: 4px 10px; border-radius: 12px; }
-.filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; font-size: 13px; }
-.filters .search { flex: 1 1 260px; min-width: 220px; padding: 6px 10px; border: 1px solid #cfcfcf; border-radius: 6px; }
-.filters input[type="date"] { padding: 4px 6px; border: 1px solid #cfcfcf; border-radius: 6px; }
-.filters .check { display: flex; align-items: center; gap: 4px; }
-.filters .count { margin-left: auto; color: #888; }
-.table-card { padding: 0; overflow: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; text-align: left; white-space: nowrap; }
-th { background: #fafbf9; color: #555; font-weight: 600; }
-.num { text-align: right; }
-.ops { text-align: right; }
-td.mono { color: #888; font-size: 12px; }
-.empty { text-align: center; color: #999; padding: 28px; }
-.badge { font-size: 12px; padding: 1px 8px; border-radius: 10px; }
-.badge-ok { background: #e5f3df; color: #3a6b28; }
-.badge-bad { background: #fbe3e1; color: #b03a2e; }
-.badge-warn { background: #fdf3e2; color: #a4691a; }
-.badge-muted { background: #eee; color: #777; }
-.notice { padding: 8px 12px; background: #eef6ea; color: #3a6b28; font-size: 13px; }
-.error-hint { color: #b03a2e; padding: 10px 12px; }
-.hint { color: #8a8a8a; font-size: 12px; }
-.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
-.modal { background: #fff; border-radius: 10px; width: min(720px, 100%); max-height: 90vh; overflow: auto; padding: 18px; }
-.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.modal-head h3 { margin: 0; font-size: 16px; }
-.fixed-info { margin-bottom: 12px; padding: 8px 12px; background: #f7f9f6; border-radius: 6px; font-size: 13px; color: #555; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
-.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.field.block { margin-top: 10px; }
-.field span { color: #666; }
-.field input, .field select, .field textarea { padding: 6px 8px; border: 1px solid #cfcfcf; border-radius: 6px; font-size: 13px; font-family: inherit; }
-.field textarea { resize: vertical; }
-.modal-error { margin-top: 10px; color: #b03a2e; font-size: 13px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-.primary-btn, .ghost-btn { padding: 6px 14px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; font-size: 13px; }
-.primary-btn { background: #548235; color: #fff; }
-.primary-btn:disabled { opacity: 0.6; }
-.ghost-btn { background: #fff; border-color: #cfcfcf; color: #444; }
-.link-btn { background: none; border: none; color: #548235; cursor: pointer; font-size: 13px; padding: 0 4px; }
-.link-btn.danger { color: #c0392b; }
-</style>
+function onKeydown(ev) {
+  if (ev.key === "Escape" && modal.value.open) closeModal();
+}
+
+onMounted(() => {
+  load();
+  window.addEventListener("keydown", onKeydown);
+});
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+</script>

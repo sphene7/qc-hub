@@ -3,7 +3,7 @@
     <div class="perm-head">
       <div>
         <h2>权限管理</h2>
-        <p class="hint">为普通用户分配各业务模块（工作簿）的查看、增、删、改权限。超级管理员与模块所有者默认拥有全部权限。</p>
+        <p class="hint">为普通用户分配各业务模块（工作簿）的权限。「送检 / 抽检 / 异常」对应抽检登记的三个页面，「课室」限定送检数据范围（留空=全部）。超级管理员与模块所有者默认拥有全部权限。</p>
       </div>
     </div>
 
@@ -36,16 +36,21 @@
             <tr>
               <th>用户</th>
               <th>业务模块</th>
+              <th>角色</th>
               <th class="crud-col">查看</th>
-              <th class="crud-col">增</th>
-              <th class="crud-col">改</th>
-              <th class="crud-col">删</th>
+              <th class="crud-col" title="巡检/客诉等通用录入">增</th>
+              <th class="crud-col" title="巡检/客诉等通用修改">改</th>
+              <th class="crud-col">删除</th>
+              <th class="crud-col" title="能否登记/修改送检单">送检</th>
+              <th class="crud-col" title="能否登记/修改抽检记录">抽检</th>
+              <th class="crud-col" title="能否填写 OA/责任/对策/结案">异常</th>
+              <th class="dept-col" title="送检数据范围：留空=全部，填课室=只看本课室">课室</th>
               <th>状态</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="filteredGrants.length === 0">
-              <td colspan="7" class="empty">暂无可配置的用户或业务模块</td>
+              <td colspan="12" class="empty">暂无可配置的用户或业务模块</td>
             </tr>
             <tr v-for="row in filteredGrants" :key="row.user_id + '-' + row.project_id">
               <td>
@@ -53,10 +58,35 @@
                 <span class="sub">{{ row.username }}</span>
               </td>
               <td>{{ row.project_name }}</td>
-              <td class="crud-col"><input type="checkbox" :checked="row.permissions.read" :disabled="row.is_owner" @change="togglePerm(row, 'read', $event.target.checked)" /></td>
-              <td class="crud-col"><input type="checkbox" :checked="row.permissions.create" :disabled="row.is_owner" @change="togglePerm(row, 'create', $event.target.checked)" /></td>
-              <td class="crud-col"><input type="checkbox" :checked="row.permissions.update" :disabled="row.is_owner" @change="togglePerm(row, 'update', $event.target.checked)" /></td>
-              <td class="crud-col"><input type="checkbox" :checked="row.permissions.delete" :disabled="row.is_owner" @change="togglePerm(row, 'delete', $event.target.checked)" /></td>
+              <td>
+                <select
+                  class="preset-select"
+                  :value="row.role_id || ''"
+                  :disabled="row.is_owner"
+                  @change="applyRole(row, $event.target.value)"
+                >
+                  <option value="">自定义</option>
+                  <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.name }}</option>
+                </select>
+              </td>
+              <td class="crud-col"><input type="checkbox" :checked="row.permissions.read" :disabled="row.is_owner || !!row.role_id" @change="togglePerm(row, 'read', $event.target.checked)" /></td>
+              <td class="crud-col"><input type="checkbox" :checked="row.permissions.create" :disabled="row.is_owner || !!row.role_id" @change="togglePerm(row, 'create', $event.target.checked)" /></td>
+              <td class="crud-col"><input type="checkbox" :checked="row.permissions.update" :disabled="row.is_owner || !!row.role_id" @change="togglePerm(row, 'update', $event.target.checked)" /></td>
+              <td class="crud-col"><input type="checkbox" :checked="row.permissions.delete" :disabled="row.is_owner || !!row.role_id" @change="togglePerm(row, 'delete', $event.target.checked)" /></td>
+              <td class="crud-col"><input type="checkbox" :checked="row.permissions.submit" :disabled="row.is_owner || !!row.role_id" @change="togglePerm(row, 'submit', $event.target.checked)" /></td>
+              <td class="crud-col"><input type="checkbox" :checked="row.permissions.inspect" :disabled="row.is_owner || !!row.role_id" @change="togglePerm(row, 'inspect', $event.target.checked)" /></td>
+              <td class="crud-col"><input type="checkbox" :checked="row.permissions.handle" :disabled="row.is_owner || !!row.role_id" @change="togglePerm(row, 'handle', $event.target.checked)" /></td>
+              <td class="dept-col">
+                <select
+                  class="dept-select"
+                  :value="row.permissions.dept || ''"
+                  :disabled="row.is_owner || !row.permissions.submit"
+                  @change="setDept(row, $event.target.value)"
+                >
+                  <option value="">全部</option>
+                  <option v-for="d in activeDepartments" :key="d.id" :value="d.name">{{ d.name }}</option>
+                </select>
+              </td>
               <td><span v-if="row.is_owner" class="owner-label">所有者</span><span v-else class="grant-hint">{{ row.hasGrant ? '已分配' : '未分配' }}</span></td>
             </tr>
           </tbody>
@@ -95,7 +125,7 @@ const allRows = computed(() => {
         full_name: user.full_name,
         project_id: project.id,
         project_name: project.name,
-        permissions: isOwner ? { create: true, read: true, update: true, delete: true } : (grant?.permissions || {}),
+        permissions: isOwner ? { create: true, read: true, update: true, delete: true, submit: true, inspect: true, handle: true, dept: '' } : (grant?.permissions || {}),
         is_owner: isOwner,
         hasGrant: !!grant,
       }));
@@ -115,7 +145,11 @@ const filteredGrants = computed(() => {
   return rows;
 });
 
-onMounted(loadAll);
+onMounted(() => {
+  loadAll();
+  loadDepartments();
+  loadRoles();
+});
 
 async function loadAll() {
   loading.value = true;
@@ -138,26 +172,127 @@ function normalizeGrant(g) {
   const p = g.permissions || {};
   return {
     ...g,
+    role_id: g.role_id ?? null,
     permissions: {
       read: !!p.read,
       create: !!p.create,
       update: !!p.update,
       delete: !!p.delete,
+      submit: p.submit == null ? !!(p.create || p.update) : !!p.submit,
+      inspect: p.inspect == null ? !!p.update : !!p.inspect,
+      handle: p.handle == null ? !!p.update : !!p.handle,
+      dept: p.dept || "",
     },
+    preset: detectPreset(p),
   };
 }
 
-async function saveGrant(userId, projectId, permissions) {
+async function saveGrant(userId, projectId, permissions, roleId = null) {
   const res = await authFetch("/api/admin/permissions", {
     method: "PUT",
     body: JSON.stringify({
       user_id: Number(userId),
       project_id: projectId,
       permissions,
+      role_id: roleId,
     }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || "保存失败");
+}
+
+const departments = ref([]);
+const roles = ref([]);
+
+async function loadRoles() {
+  try {
+    const res = await authFetch("/api/admin/roles");
+    if (!res.ok) return;
+    const data = await res.json();
+    roles.value = data.roles || [];
+  } catch {
+    /* 角色接口失败不阻塞 */
+  }
+}
+const activeDepartments = computed(() => departments.value.filter((d) => d.active));
+
+async function loadDepartments() {
+  try {
+    const res = await authFetch("/api/admin/departments");
+    if (!res.ok) return;
+    const data = await res.json();
+    departments.value = data.departments || [];
+  } catch {
+    /* 部门接口失败不阻塞权限页 */
+  }
+}
+
+const presetOptions = [
+  { key: "custom", label: "自定义" },
+  { key: "submitter", label: "送检员" },
+  { key: "inspector", label: "检验员" },
+  { key: "quality", label: "品质" },
+  { key: "supervisor", label: "项目主管" },
+  { key: "reader", label: "只读" },
+];
+
+const PRESET_PERMS = {
+  submitter: { read: true, submit: true },
+  inspector: { read: true, inspect: true },
+  quality: { read: true, handle: true },
+  supervisor: { read: true, submit: true, inspect: true, handle: true, delete: true },
+  reader: { read: true },
+};
+
+function detectPreset(p) {
+  if (!p) return "custom";
+  const f = {
+    read: !!p.read,
+    submit: !!p.submit,
+    inspect: !!p.inspect,
+    handle: !!p.handle,
+    del: !!p.delete,
+  };
+  if (f.read && f.submit && !f.inspect && !f.handle && !f.del) return "submitter";
+  if (f.read && f.inspect && !f.submit && !f.handle && !f.del) return "inspector";
+  if (f.read && f.handle && !f.submit && !f.inspect && !f.del) return "quality";
+  if (f.read && f.submit && f.inspect && f.handle && f.del) return "supervisor";
+  if (f.read && !f.submit && !f.inspect && !f.handle && !f.del) return "reader";
+  return "custom";
+}
+
+async function applyPreset(row, key) {
+  if (key === "custom") return;
+  const base = PRESET_PERMS[key];
+  const writable = !!(base.submit || base.inspect || base.handle);
+  const next = {
+    read: !!base.read,
+    create: writable,
+    update: writable,
+    delete: !!base.delete,
+    submit: !!base.submit,
+    inspect: !!base.inspect,
+    handle: !!base.handle,
+    dept: key === "submitter" ? row.permissions.dept || "" : "",
+  };
+  setLocalGrant(row, next);
+  try {
+    await saveGrant(row.user_id, row.project_id, next);
+  } catch (err) {
+    error.value = err.message || String(err);
+    await loadAll();
+  }
+}
+
+async function setDept(row, value) {
+  const next = { ...row.permissions, dept: String(value || "").trim() };
+  setLocalGrant(row, next);
+  try {
+    await saveGrant(row.user_id, row.project_id, next);
+  } catch (err) {
+    error.value = err.message || String(err);
+    await loadAll();
+  }
 }
 
 async function togglePerm(row, key, checked) {
@@ -168,9 +303,12 @@ async function togglePerm(row, key, checked) {
     next.create = false;
     next.update = false;
     next.delete = false;
+    next.submit = false;
+    next.inspect = false;
+    next.handle = false;
   }
   try {
-    if (!next.read && !next.create && !next.update && !next.delete) {
+    if (!next.read && !next.create && !next.update && !next.delete && !next.submit && !next.inspect && !next.handle) {
       const hadGrant = row.hasGrant;
       removeLocalGrant(row);
       if (hadGrant) await deleteGrant(row);
@@ -185,13 +323,29 @@ async function togglePerm(row, key, checked) {
   }
 }
 
-function setLocalGrant(row, permissions) {
+async function applyRole(row, value) {
+  const roleId = value ? Number(value) : null;
+  const role = roles.value.find((r) => r.id === roleId);
+  const next = role
+    ? { ...role.permissions, dept: row.permissions.dept || "" }
+    : { ...row.permissions };
+  setLocalGrant(row, next, roleId);
+  try {
+    await saveGrant(row.user_id, row.project_id, next, roleId);
+  } catch (err) {
+    error.value = err.message || String(err);
+    await loadAll();
+  }
+}
+
+function setLocalGrant(row, permissions, roleId = null) {
   const nextGrant = normalizeGrant({
     user_id: row.user_id,
     username: row.username,
     full_name: row.full_name,
     project_id: row.project_id,
     project_name: row.project_name,
+    role_id: roleId,
     permissions,
   });
   const index = grants.value.findIndex((grant) =>
@@ -219,6 +373,25 @@ async function deleteGrant(row) {
 </script>
 
 <style scoped>
+.preset-select {
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid #d6dcd0;
+  border-radius: 6px;
+  background: #fff;
+}
+.dept-select {
+  width: 120px;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid #d6dcd0;
+  border-radius: 6px;
+}
+.dept-select:disabled { background: #f4f5f2; color: #aaa; }
+.dept-col { min-width: 120px; }
+.perm-table th { white-space: nowrap; }
+.perm-table .crud-col { min-width: 46px; text-align: center; }
+
 .permission-management {
   margin: 0;
 }

@@ -12,7 +12,7 @@ export const BUSINESS_MODULE_LABELS = {
 export const MODULE_NAV_KEYS = {
   inspection: ["dashboard", "sampling", "analytics", "codes", "sheets"],
   complaint: ["dashboard", "analytics", "sheets"],
-  sampling: ["submit", "inspect", "defect", "dashboard", "oa_fill", "closed_loop", "analytics", "codes", "sheets"],
+  sampling: ["submit", "inspect", "defect", "dashboard", "analytics", "codes", "sheets"],
 };
 
 /** Tab 在各模块下的显示名（dashboard 因模块而异） */
@@ -26,8 +26,6 @@ export const NAV_TAB_LABELS = {
   inspect: "抽检登记",
   defect: "异常登记",
   sampling: "抽检数据",
-  oa_fill: "OA补录",
-  closed_loop: "闭环分析",
   analytics: "趋势分析",
   codes: "类别管理",
   sheets: "原始分表",
@@ -36,7 +34,7 @@ export const NAV_TAB_LABELS = {
 export const DEFAULT_NAV_ORDERS = {
   inspection: ["dashboard", "sampling", "analytics", "codes", "sheets"],
   complaint: ["dashboard", "analytics", "sheets"],
-  sampling: ["submit", "inspect", "defect", "dashboard", "oa_fill", "closed_loop", "analytics", "codes", "sheets"],
+  sampling: ["submit", "inspect", "defect", "dashboard", "analytics", "codes", "sheets"],
 };
 
 export function navTabLabel(moduleKey, tabKey) {

@@ -1,130 +1,207 @@
 <template>
-  <div class="page-block">
-    <div class="toolbar card">
-      <div>
-        <h2>① 送检登记</h2>
-        <p class="hint">外部/产线人员填写。一批送检一张单，登记到「送检数量」。</p>
+  <div class="smp-page">
+    <div class="smp-toolbar card">
+      <button v-if="canSubmit" type="button" class="smp-btn smp-btn-primary" @click="openNew">
+        + 新增送检
+      </button>
+      <div class="smp-stats">
+        <span class="smp-stat">今日我登记 <strong>{{ todayMine }}</strong> 条</span>
+        <span class="smp-stat">待抽检 <strong>{{ pending }}</strong> 张</span>
+        <span class="smp-stat">本月 <strong>{{ monthCount }}</strong> 张</span>
+        <span v-if="dept" class="smp-stat">课室 <strong>{{ dept }}</strong></span>
       </div>
-      <div class="toolbar-right">
-        <span class="stat">今日我登记 <strong>{{ todayMine }}</strong> 条</span>
-        <span class="stat">待抽检 <strong>{{ pending }}</strong> 张</span>
-        <button v-if="canCreate" type="button" class="primary-btn" @click="openNew">+ 新增送检</button>
-        <button type="button" class="ghost-btn" :disabled="loading" @click="load">刷新</button>
-      </div>
+      <span class="smp-spacer"></span>
+      <button type="button" class="smp-btn smp-btn-ghost" :disabled="loading" @click="load">刷新</button>
     </div>
 
-    <div v-if="notice" class="notice card">{{ notice }}</div>
-    <div v-if="error" class="error-hint card">{{ error }}</div>
+    <div v-if="notice" class="smp-notice">{{ notice }}</div>
+    <div v-if="error" class="smp-error">{{ error }}</div>
 
-    <div class="card filters">
-      <input v-model="filters.keyword" class="search" placeholder="搜索 单号 / 机种 / 送检单位" />
-      <label>日期 <input v-model="filters.from" type="date" /> ~ <input v-model="filters.to" type="date" /></label>
-      <label class="check"><input v-model="filters.mine" type="checkbox" /> 只看我的</label>
-      <button type="button" class="link-btn" @click="resetFilters">清空</button>
-      <span class="count">共 {{ filtered.length }} 条</span>
+    <div class="smp-filters card">
+      <div class="smp-search"><input v-model="filters.partNo" placeholder="部番" /></div>
+      <div class="smp-search"><input v-model="filters.model" placeholder="机种" /></div>
+      <div class="smp-search"><input v-model="filters.dept" placeholder="送检单位" /></div>
+      <div class="smp-seg">
+        <button
+          v-for="opt in statusOptions"
+          :key="opt.key"
+          type="button"
+          :class="{ active: status === opt.key }"
+          @click="status = opt.key"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+      <div class="smp-seg">
+        <button
+          v-for="opt in presetOptions"
+          :key="opt.key"
+          type="button"
+          :class="{ active: preset === opt.key }"
+          @click="applyPreset(opt.key)"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+      <label class="smp-daterange">
+        日期
+        <input v-model="filters.from" type="date" @change="preset = ''" />
+        ~
+        <input v-model="filters.to" type="date" @change="preset = ''" />
+      </label>
+      <label class="smp-check">
+        <input v-model="filters.mine" type="checkbox" />
+        只看我的
+      </label>
+      <button type="button" class="smp-reset" @click="resetFilters">清空</button>
+      <span class="smp-count">共 {{ filtered.length }} 条</span>
     </div>
 
-    <div class="card table-card">
-      <table>
-        <thead>
-          <tr>
-            <th>送检单号</th>
-            <th>日期</th>
-            <th>机种</th>
-            <th>送检单位</th>
-            <th class="num">送检数量</th>
-            <th class="num">抽检人数</th>
-            <th class="num">异常</th>
-            <th>状态</th>
-            <th>登记人</th>
-            <th class="ops">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="loading"><td colspan="10" class="empty">加载中…</td></tr>
-          <tr v-else-if="!filtered.length"><td colspan="10" class="empty">没有符合条件的送检单</td></tr>
-          <template v-else>
-            <tr v-for="e in filtered" :key="e.送检单号">
-            <td class="mono">{{ e.送检单号 }}</td>
-            <td>{{ e.日期 }}</td>
-            <td>{{ e.机种 || "-" }}</td>
-            <td>{{ e.送检单位 || "-" }}</td>
-            <td class="num">{{ e.送检数量 ?? "-" }}</td>
-            <td class="num">{{ (e.抽检 || []).length }}</td>
-            <td class="num">{{ defectCount(e) }}</td>
-            <td>
-              <span class="badge" :class="status(e).cls">{{ status(e).label }}</span>
-            </td>
-            <td>{{ e.登记人 || "-" }}</td>
-            <td class="ops">
-              <button type="button" class="link-btn" @click="openEdit(e)">编辑</button>
-              <button v-if="canDelete" type="button" class="link-btn danger" @click="remove(e)">
-                删除
-              </button>
-            </td>
+    <div class="card smp-table-card">
+      <div class="smp-table-wrap">
+        <table class="smp-table">
+          <thead>
+            <tr>
+              <th class="ops">操作</th>
+              <th>送检单号</th>
+              <th>日期</th>
+              <th>部番</th>
+              <th>机种</th>
+              <th>事业部</th>
+              <th>送检单位</th>
+              <th class="num">送检数量</th>
+              <th class="num">抽检人数</th>
+              <th class="num">异常</th>
+              <th>状态</th>
+              <th>登记人</th>
             </tr>
-          </template>
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            <tr v-if="loading"><td colspan="12"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-else-if="!filtered.length">
+              <td colspan="12">
+                <div class="smp-empty">
+                  <span class="smp-empty-icon">📋</span>
+                  没有符合条件的送检单
+                </div>
+              </td>
+            </tr>
+            <template v-else>
+              <tr v-for="e in filtered" :key="e.送检单号" class="clickable" @click="openEdit(e)">
+                <td class="ops" @click.stop>
+                  <button
+                    v-if="canInspect"
+                    type="button"
+                    class="quick-btn"
+                    title="跳到抽检登记并选中这张送检单"
+                    @click="quickInspect(e)"
+                  >
+                    抽检登记
+                  </button>
+                  <button v-if="canSubmit" type="button" class="smp-link" @click="openEdit(e)">编辑</button>
+                  <button v-if="canDelete" type="button" class="smp-link danger" @click="remove(e)">
+                    删除
+                  </button>
+                </td>
+                <td class="mono">{{ e.送检单号 }}</td>
+                <td>{{ e.日期 }}</td>
+                <td class="mono">{{ e.部番 || e.机种 || "-" }}</td>
+                <td>{{ e.机种 || "-" }}</td>
+                <td><span v-if="e.事业部" class="bu-tag">{{ e.事业部 }}</span><span v-else>-</span></td>
+                <td>{{ e.送检单位 || "-" }}</td>
+                <td class="num">{{ e.送检数量 ?? "-" }}</td>
+                <td class="num">{{ (e.抽检 || []).length }}</td>
+                <td class="num">{{ defectCount(e) || "-" }}</td>
+                <td>
+                  <span class="smp-badge" :class="statusOf(e).cls">{{ statusOf(e).label }}</span>
+                </td>
+                <td>{{ e.登记人 || "-" }}</td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
     </div>
 
-    <div v-if="modal.open" class="overlay" @click.self="closeModal">
-      <div class="modal">
-        <div class="modal-head">
+    <div v-if="modal.open" class="smp-overlay" @click.self="closeModal">
+      <div class="smp-modal">
+        <div class="smp-modal-head">
           <h3>{{ modal.id ? `编辑 ${modal.id}` : "新增送检单" }}</h3>
-          <button type="button" class="link-btn" @click="closeModal">✕</button>
+          <button type="button" class="smp-modal-close" @click="closeModal">✕</button>
         </div>
-        <div class="grid">
-          <label class="field"><span>日期</span><input v-model="form.日期" type="date" /></label>
-          <label class="field">
-            <span>时间段</span>
-            <input v-model="form.时间段" list="opt-时间段" />
-          </label>
-          <label class="field">
-            <span>送检类型</span>
-            <input v-model="form.送检类型" list="opt-送检类型" />
-          </label>
-          <label class="field"><span>机种 *</span><input v-model="form.机种" list="opt-机种" /></label>
-          <label class="field">
-            <span>送检单位</span>
-            <input v-model="form.送检单位" list="opt-送检单位" />
-          </label>
-          <label class="field">
-            <span>送检数量 *</span>
-            <input v-model="form.送检数量" type="number" min="0" step="any" />
-          </label>
-          <label class="field">
-            <span>同批送检次数</span>
-            <input v-model="form.同批送检次数" type="number" min="0" />
-          </label>
-          <label class="field">
-            <span>是否紧急出货</span>
-            <select v-model="form.是否紧急出货">
-              <option value="">-</option>
-              <option value="是">是</option>
-              <option value="否">否</option>
-            </select>
-          </label>
-          <label class="field"><span>确认者</span><input v-model="form.确认者" list="opt-确认者" /></label>
-          <label class="field">
-            <span>课室负责人</span>
-            <input v-model="form.课室负责人" list="opt-课室负责人" />
-          </label>
-          <label class="field wide"><span>层别备注</span><input v-model="form.层别备注" /></label>
+        <div class="smp-modal-body">
+          <div class="smp-section">
+            <p class="smp-section-title">送检信息</p>
+            <div class="smp-grid">
+              <label class="smp-field">
+                <span>日期</span>
+                <input v-model="form.日期" type="datetime-local" />
+              </label>
+              <label class="smp-field">
+                <span>送检类型</span>
+                <input v-model="form.送检类型" list="opt-送检类型" />
+              </label>
+              <label class="smp-field">
+                <span>部番<span class="smp-required">*</span></span>
+                <input ref="firstInput" v-model="form.部番" list="opt-部番" placeholder="如 T5724-A1" @change="onPartNoChange" />
+              </label>
+              <label class="smp-field">
+                <span>机种（部番 - 前）</span>
+                <input :value="form.机种" readonly class="readonly" />
+              </label>
+              <label class="smp-field">
+                <span>事业部</span>
+                <input v-model="form.事业部" list="opt-事业部" placeholder="按部番自动匹配" />
+              </label>
+              <label class="smp-field">
+                <span>送检单位</span>
+                <input v-model="form.送检单位" list="opt-送检单位" :readonly="!!dept" :class="{ locked: !!dept }" />
+              </label>
+              <label class="smp-field">
+                <span>送检数量<span class="smp-required">*</span></span>
+                <input v-model="form.送检数量" type="number" min="0" step="any" />
+              </label>
+              <label class="smp-field">
+                <span>同批送检次数</span>
+                <input v-model="form.同批送检次数" type="number" min="0" />
+              </label>
+              <label class="smp-field">
+                <span>是否紧急出货</span>
+                <select v-model="form.是否紧急出货">
+                  <option value="">-</option>
+                  <option value="是">是</option>
+                  <option value="否">否</option>
+                </select>
+              </label>
+              <label class="smp-field">
+                <span>确认者</span>
+                <input v-model="form.确认者" list="opt-确认者" />
+              </label>
+              <label class="smp-field">
+                <span>课室负责人</span>
+                <input v-model="form.课室负责人" list="opt-课室负责人" />
+              </label>
+              <label class="smp-field full">
+                <span>层别备注</span>
+                <input v-model="form.层别备注" />
+              </label>
+            </div>
+          </div>
+          <div v-if="modal.error" class="smp-modal-error">{{ modal.error }}</div>
         </div>
-        <div v-if="modal.error" class="modal-error">{{ modal.error }}</div>
-        <div class="modal-actions">
-          <button type="button" class="ghost-btn" @click="closeModal">取消</button>
-          <button type="button" class="primary-btn" :disabled="saving" @click="save">
+        <div class="smp-modal-foot">
+          <button type="button" class="smp-btn smp-btn-ghost" @click="closeModal">取消</button>
+          <button type="button" class="smp-btn smp-btn-primary" :disabled="saving" @click="save">
             {{ saving ? "保存中…" : "保存" }}
           </button>
         </div>
       </div>
     </div>
 
+    <datalist id="opt-部番"><option v-for="o in options.部番 || []" :key="o" :value="o" /></datalist>
+    <datalist id="opt-事业部"><option v-for="o in options.事业部 || []" :key="o" :value="o" /></datalist>
     <datalist id="opt-机种"><option v-for="o in options.机种 || []" :key="o" :value="o" /></datalist>
     <datalist id="opt-送检单位"><option v-for="o in options.送检单位 || []" :key="o" :value="o" /></datalist>
-    <datalist id="opt-时间段"><option v-for="o in options.时间段 || []" :key="o" :value="o" /></datalist>
     <datalist id="opt-送检类型"><option v-for="o in options.送检类型 || []" :key="o" :value="o" /></datalist>
     <datalist id="opt-确认者"><option v-for="o in options.确认者 || []" :key="o" :value="o" /></datalist>
     <datalist id="opt-课室负责人"><option v-for="o in options.课室负责人 || []" :key="o" :value="o" /></datalist>
@@ -132,7 +209,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import { authFetch } from "./api.js";
 import {
   createSubmission,
   defectCount,
@@ -151,39 +230,103 @@ const props = defineProps({
   canCreate: { type: Boolean, default: false },
   canUpdate: { type: Boolean, default: false },
   canDelete: { type: Boolean, default: false },
+  canInspect: { type: Boolean, default: false },
+  canSubmit: { type: Boolean, default: false },
+  dept: { type: String, default: "" },
 });
 
+const router = useRouter();
 const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
 const notice = ref("");
 const entries = ref([]);
 const options = ref({});
-const filters = ref({ keyword: "", from: "", to: "", mine: false });
-const modal = ref({ open: false, id: "", error: "" });
+const filters = ref({ partNo: "", model: "", dept: "", from: "", to: "", mine: false });
+const status = ref("all");
+const preset = ref("");
+const modal = ref({ open: false, id: "", error: "", version: null });
 const form = ref(blankForm());
+const firstInput = ref(null);
 
-const status = submissionStatus;
+const statusOptions = [
+  { key: "all", label: "全部" },
+  { key: "todo", label: "待抽检" },
+  { key: "ng", label: "有异常" },
+  { key: "ok", label: "正常" },
+];
+const presetOptions = [
+  { key: "", label: "不限日期" },
+  { key: "today", label: "今天" },
+  { key: "7d", label: "近7天" },
+  { key: "month", label: "本月" },
+];
+
+const statusOf = submissionStatus;
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function applyPreset(key) {
+  preset.value = key;
+  const now = new Date();
+  if (key === "today") {
+    filters.value.from = isoDate(now);
+    filters.value.to = isoDate(now);
+  } else if (key === "7d") {
+    const start = new Date(now);
+    start.setDate(start.getDate() - 6);
+    filters.value.from = isoDate(start);
+    filters.value.to = isoDate(now);
+  } else if (key === "month") {
+    filters.value.from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    filters.value.to = isoDate(now);
+  } else {
+    filters.value.from = "";
+    filters.value.to = "";
+  }
+}
 
 const filtered = computed(() =>
   entries.value.filter((e) => {
     if (!inRange(e.日期, filters.value.from, filters.value.to)) return false;
     if (filters.value.mine && (e.登记人 || "") !== meName()) return false;
-    return matchKeyword(filters.value.keyword, e.送检单号, e.机种, e.送检单位);
+    const inspected = (e.抽检 || []).length > 0;
+    const bad = defectCount(e) > 0;
+    if (status.value === "todo" && inspected) return false;
+    if (status.value === "ng" && !bad) return false;
+    if (status.value === "ok" && (!inspected || bad)) return false;
+    return (
+      matchKeyword(filters.value.partNo, e.部番) &&
+      matchKeyword(filters.value.model, e.机种) &&
+      matchKeyword(filters.value.dept, e.送检单位)
+    );
   }),
 );
 const todayMine = computed(() => {
   const today = todayStr();
-  return entries.value.filter((e) => e.日期 === today && (e.登记人 || "") === meName()).length;
+  return entries.value.filter((e) => String(e.日期 || "").slice(0, 10) === today && (e.登记人 || "") === meName()).length;
 });
 const pending = computed(() => entries.value.filter((e) => !(e.抽检 || []).length).length);
+const monthCount = computed(() => {
+  const month = todayStr().slice(0, 7);
+  return entries.value.filter((e) => String(e.日期 || "").slice(0, 7) === month).length;
+});
+
+function nowLocalStr() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function blankForm() {
   return {
-    日期: todayStr(),
-    时间段: "8:00-12:00",
+    日期: nowLocalStr(),
     送检类型: "正常送检",
+    部番: "",
     机种: "",
+    事业部: "",
     送检单位: "",
     送检数量: "",
     同批送检次数: "",
@@ -192,6 +335,21 @@ function blankForm() {
     确认者: "",
     课室负责人: "",
   };
+}
+
+async function onPartNoChange() {
+  const part = String(form.value.部番 || "").trim();
+  form.value.机种 = part.split("-")[0];
+  if (!part || !props.workbookId) return;
+  try {
+    const res = await authFetch(
+      `/api/workbooks/${props.workbookId}/sampling/business-unit?model=${encodeURIComponent(part)}`,
+    );
+    const data = await res.json();
+    if (res.ok && data.business_unit) form.value.事业部 = data.business_unit;
+  } catch {
+    /* 匹配失败不阻塞填写 */
+  }
 }
 
 function flash(message) {
@@ -218,24 +376,30 @@ async function load() {
 
 function openNew() {
   form.value = blankForm();
-  modal.value = { open: true, id: "", error: "" };
+  modal.value = { open: true, id: "", error: "", version: null };
 }
 
 function openEdit(entry) {
+  if (!props.canSubmit) return;
   const next = blankForm();
   for (const key of Object.keys(next)) {
     if (entry[key] !== undefined && entry[key] !== null) next[key] = entry[key];
   }
+  if (typeof next.日期 === "string" && next.日期.includes(" ")) {
+    next.日期 = next.日期.replace(" ", "T");
+  }
   form.value = next;
-  modal.value = { open: true, id: entry.送检单号, error: "" };
+  modal.value = { open: true, id: entry.送检单号, error: "", version: entry.版本 ?? null };
 }
 
 function closeModal() {
-  modal.value = { open: false, id: "", error: "" };
+  modal.value = { open: false, id: "", error: "", version: null };
 }
 
 function resetFilters() {
-  filters.value = { keyword: "", from: "", to: "", mine: false };
+  filters.value = { partNo: "", model: "", dept: "", from: "", to: "", mine: false };
+  status.value = "all";
+  preset.value = "";
 }
 
 async function save() {
@@ -243,6 +407,9 @@ async function save() {
   modal.value.error = "";
   try {
     const payload = { ...form.value };
+    if (modal.value.id && modal.value.version != null) {
+      payload.expected_version = modal.value.version;
+    }
     const data = modal.value.id
       ? await updateSubmission(props.workbookId, modal.value.id, payload)
       : await createSubmission(props.workbookId, payload);
@@ -251,6 +418,7 @@ async function save() {
     closeModal();
   } catch (err) {
     modal.value.error = err.message;
+    if (String(err.message).includes("刷新")) await load();
   } finally {
     saving.value = false;
   }
@@ -267,51 +435,31 @@ async function remove(entry) {
   }
 }
 
-onMounted(load);
-</script>
+function quickInspect(entry) {
+  router.push({
+    name: "project-view",
+    params: { wid: props.workbookId, tab: "inspect" },
+    query: { sid: entry.送检单号 },
+  });
+}
 
-<style scoped>
-.page-block { display: flex; flex-direction: column; gap: 12px; }
-.toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
-.toolbar h2 { margin: 0 0 4px; font-size: 18px; }
-.toolbar p { margin: 0; max-width: 680px; }
-.toolbar-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.stat { font-size: 12px; color: #666; background: #f4f6f2; padding: 4px 10px; border-radius: 12px; }
-.filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; font-size: 13px; }
-.filters .search { flex: 1 1 240px; min-width: 200px; padding: 6px 10px; border: 1px solid #cfcfcf; border-radius: 6px; }
-.filters input[type="date"] { padding: 4px 6px; border: 1px solid #cfcfcf; border-radius: 6px; }
-.filters .check { display: flex; align-items: center; gap: 4px; }
-.filters .count { margin-left: auto; color: #888; }
-.table-card { padding: 0; overflow: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; text-align: left; white-space: nowrap; }
-th { background: #fafbf9; color: #555; font-weight: 600; }
-.num { text-align: right; }
-.ops { text-align: right; }
-td.mono { color: #888; font-size: 12px; }
-.empty { text-align: center; color: #999; padding: 28px; }
-.badge { font-size: 12px; padding: 1px 8px; border-radius: 10px; }
-.badge-ok { background: #e5f3df; color: #3a6b28; }
-.badge-bad { background: #fbe3e1; color: #b03a2e; }
-.badge-muted { background: #eee; color: #777; }
-.notice { padding: 8px 12px; background: #eef6ea; color: #3a6b28; font-size: 13px; }
-.error-hint { color: #b03a2e; padding: 10px 12px; }
-.hint { color: #8a8a8a; font-size: 12px; }
-.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
-.modal { background: #fff; border-radius: 10px; width: min(760px, 100%); max-height: 90vh; overflow: auto; padding: 18px; }
-.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.modal-head h3 { margin: 0; font-size: 16px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
-.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
-.field.wide { grid-column: 1 / -1; }
-.field span { color: #666; }
-.field input, .field select { padding: 6px 8px; border: 1px solid #cfcfcf; border-radius: 6px; font-size: 13px; }
-.modal-error { margin-top: 10px; color: #b03a2e; font-size: 13px; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-.primary-btn, .ghost-btn { padding: 6px 14px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; font-size: 13px; }
-.primary-btn { background: #548235; color: #fff; }
-.primary-btn:disabled { opacity: 0.6; }
-.ghost-btn { background: #fff; border-color: #cfcfcf; color: #444; }
-.link-btn { background: none; border: none; color: #548235; cursor: pointer; font-size: 13px; padding: 0 4px; }
-.link-btn.danger { color: #c0392b; }
-</style>
+watch(
+  () => modal.value.open,
+  async (open) => {
+    if (open) {
+      await nextTick();
+      firstInput.value?.focus?.();
+    }
+  },
+);
+
+function onKeydown(ev) {
+  if (ev.key === "Escape" && modal.value.open) closeModal();
+}
+
+onMounted(() => {
+  load();
+  window.addEventListener("keydown", onKeydown);
+});
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+</script>

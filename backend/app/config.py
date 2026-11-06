@@ -20,7 +20,7 @@ BUSINESS_MODULE_KEYS = ("inspection", "complaint", "sampling")
 MODULE_NAV_KEYS: dict[str, list[str]] = {
     "inspection": ["dashboard", "sampling", "analytics", "codes", "sheets"],
     "complaint": ["dashboard", "analytics", "sheets"],
-    "sampling": ["submit", "inspect", "defect", "dashboard", "oa_fill", "closed_loop", "analytics", "codes", "sheets"],
+    "sampling": ["submit", "inspect", "defect", "dashboard", "analytics", "codes", "sheets"],
 }
 
 DEFAULT_PROJECT_NAV_ORDERS: dict[str, list[str]] = {
