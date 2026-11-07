@@ -4,7 +4,7 @@ import os
 import tempfile
 import traceback
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -293,6 +293,12 @@ class OqcDefectBody(BaseModel):
     code: str | None = None
     desc: str | None = None
     category: str
+
+
+class OqcDefectBatchBody(BaseModel):
+    code_sheet: str | None = None
+    category: str
+    descs: list[str] = Field(default_factory=list)
 
 
 class OqcDefectUpdateBody(BaseModel):
@@ -1096,6 +1102,99 @@ class ModelBuBody(BaseModel):
     business_unit: str
 
 
+class ModelBuBulkBody(BaseModel):
+    items: list[ModelBuBody] = Field(default_factory=list)
+
+
+def _upsert_model_bu_rows(db: Session, rows: list[tuple[str, str]]) -> dict[str, int]:
+    """按部番 upsert（model, business_unit）。"""
+    existing = {m.model: m for m in db.query(ModelBusinessUnit).all()}
+    added = updated = skipped = 0
+    for model, unit in rows:
+        model = (model or "").strip()
+        unit = (unit or "").strip()
+        if not model or not unit:
+            skipped += 1
+            continue
+        base = model.split("-")[0]
+        item = existing.get(model)
+        if item is None:
+            row = ModelBusinessUnit(model=model, base_model=base, business_unit=unit)
+            db.add(row)
+            existing[model] = row
+            added += 1
+        elif item.business_unit != unit or (item.base_model or "") != base:
+            item.business_unit = unit
+            item.base_model = base
+            updated += 1
+        else:
+            skipped += 1
+    db.commit()
+    return {
+        "added": added,
+        "updated": updated,
+        "skipped": skipped,
+        "total": db.query(ModelBusinessUnit).count(),
+    }
+
+
+def _parse_model_bu_upload(filename: str, raw: bytes) -> list[tuple[str, str]]:
+    """解析部番对照上传文件：xls / xlsx / csv / tsv / txt。"""
+    name = (filename or "").lower()
+    rows: list[tuple[str, str]] = []
+
+    def consume_matrix(matrix: list[list[Any]]) -> None:
+        if not matrix:
+            return
+        start = 0
+        header = [str(c or "").strip() for c in matrix[0]]
+        if any(h in ("部番", "机种", "产品线", "事业部") for h in header):
+            start = 1
+        for line in matrix[start:]:
+            if not line:
+                continue
+            model = str(line[0] if len(line) > 0 else "").strip()
+            unit = str(line[1] if len(line) > 1 else "").strip()
+            if model and unit:
+                rows.append((model, unit))
+
+    if name.endswith((".xlsx", ".xlsm")):
+        from io import BytesIO
+
+        from openpyxl import load_workbook
+
+        wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
+        ws = wb.active
+        matrix = [[cell for cell in row] for row in ws.iter_rows(values_only=True)]
+        consume_matrix(matrix)
+    elif name.endswith(".xls"):
+        import xlrd
+
+        book = xlrd.open_workbook(file_contents=raw)
+        sheet = book.sheet_by_index(0)
+        matrix = [[sheet.cell_value(r, c) for c in range(sheet.ncols)] for r in range(sheet.nrows)]
+        consume_matrix(matrix)
+    else:
+        text = raw.decode("utf-8-sig", errors="ignore")
+        matrix = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if "\t" in line:
+                parts = line.split("\t")
+            elif "," in line:
+                parts = [p.strip() for p in line.split(",")]
+            else:
+                parts = line.split()
+            matrix.append(parts)
+        consume_matrix(matrix)
+
+    if not rows:
+        raise ValueError("未解析到有效的「部番 / 事业部」行")
+    return rows
+
+
 def _model_bu_payload(db: Session, q: str | None, business_unit: str | None, page: int, page_size: int):
     query = db.query(ModelBusinessUnit)
     keyword = (q or "").strip()
@@ -1136,6 +1235,12 @@ def list_model_bu_for_project(
     return _model_bu_payload(db, q, business_unit, page, page_size)
 
 
+def _can_maintain_model_bu(db: Session, wid: str, user: User) -> bool:
+    return check_project_permission(db, wid, user.id, "handle") or check_project_permission(
+        db, wid, user.id, "create"
+    )
+
+
 @app.post("/api/workbooks/{wid}/sampling/model-bu")
 def create_model_bu_for_project(
     wid: str,
@@ -1143,7 +1248,9 @@ def create_model_bu_for_project(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _sampling_ctx(wid, current_user, db, "handle", "无权限维护部番对照")
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护部番对照")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
     model = body.model.strip()
     unit = body.business_unit.strip()
     if not model or not unit:
@@ -1165,7 +1272,9 @@ def update_model_bu_for_project(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _sampling_ctx(wid, current_user, db, "handle", "无权限维护部番对照")
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护部番对照")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
     row = db.query(ModelBusinessUnit).filter(ModelBusinessUnit.id == item_id).first()
     if not row:
         raise HTTPException(404, "记录不存在")
@@ -1192,13 +1301,58 @@ def delete_model_bu_for_project(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _sampling_ctx(wid, current_user, db, "handle", "无权限维护部番对照")
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护部番对照")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
     row = db.query(ModelBusinessUnit).filter(ModelBusinessUnit.id == item_id).first()
     if not row:
         raise HTTPException(404, "记录不存在")
     db.delete(row)
     db.commit()
     return {"message": "已删除"}
+
+
+@app.post("/api/workbooks/{wid}/sampling/model-bu/bulk")
+def bulk_model_bu_for_project(
+    wid: str,
+    body: ModelBuBulkBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """批量导入部番对照（按部番 upsert）。"""
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护部番对照")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    rows = [(item.model, item.business_unit) for item in (body.items or [])]
+    if not rows:
+        raise HTTPException(400, "没有可导入的数据")
+    return _upsert_model_bu_rows(db, rows)
+
+
+@app.post("/api/workbooks/{wid}/sampling/model-bu/import")
+async def import_model_bu_for_project(
+    wid: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """上传《OQC 表格对应表》等 xls/xlsx/csv，导入部番→事业部。"""
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护部番对照")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "文件为空")
+    try:
+        rows = _parse_model_bu_upload(file.filename or "", raw)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"解析文件失败：{exc}") from exc
+    result = _upsert_model_bu_rows(db, rows)
+    result["parsed"] = len(rows)
+    result["filename"] = file.filename
+    return result
 
 
 @app.get("/api/admin/model-bu")
@@ -2227,6 +2381,25 @@ def add_oqc_defect(wid: str, body: OqcDefectBody, current_user: User = Depends(g
     try:
         result = code_table_oqc.create_oqc_defect(
             item, code_sheet=body.code_sheet, code=body.code, desc=body.desc, category=body.category
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    _commit_code_table_result(wid, item, result, current_user, db)
+    return result
+
+
+@app.post("/api/workbooks/{wid}/oqc-defects/batch")
+def add_oqc_defects_batch(
+    wid: str, body: OqcDefectBatchBody, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    if not check_project_permission(db, wid, current_user.id, "create"):
+        raise HTTPException(403, "无权限修改代码表")
+    item = store.get(wid, db)
+    if not item:
+        raise HTTPException(404, "工作簿不存在或已过期")
+    try:
+        result = code_table_oqc.create_oqc_defects_batch(
+            item, code_sheet=body.code_sheet, category=body.category, descs=body.descs or []
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc

@@ -36,6 +36,10 @@ export async function authFetch(url, options = {}) {
     ...getAuthHeaders(),
     ...(options.headers || {}),
   }
+  // FormData 上传时不要强行 application/json，让浏览器带 multipart boundary
+  if (typeof FormData !== "undefined" && options.body instanceof FormData) {
+    delete headers["Content-Type"];
+  }
 
   const timeoutMs = options.timeout ?? API_TIMEOUT_MS;
   const controller = new AbortController();

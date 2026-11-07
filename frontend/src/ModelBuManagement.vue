@@ -11,8 +11,20 @@
       </div>
       <div class="toolbar-right">
         <span class="count">共 {{ total }} 条</span>
-        <span v-if="!canEdit" class="readonly-hint">只读（需要异常处理权限才能维护）</span>
-        <button v-if="canEdit" class="btn-primary" @click="openCreate">+ 新增部番</button>
+        <span v-if="!canEdit" class="readonly-hint">只读（需要类别管理/异常处理权限才能维护）</span>
+        <template v-if="canEdit">
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".xls,.xlsx,.csv,.tsv,.txt"
+            class="file-input"
+            @change="onImportFile"
+          />
+          <button class="btn-secondary" :disabled="importing" @click="pickImportFile">
+            {{ importing ? "导入中…" : "导入对照表" }}
+          </button>
+          <button class="btn-primary" @click="openCreate">+ 新增部番</button>
+        </template>
       </div>
     </div>
 
@@ -55,7 +67,7 @@
       </div>
     </div>
 
-    <div v-if="modal.open" class="overlay" @click.self="closeModal">
+    <div v-if="modal.open" class="overlay">
       <div class="modal">
         <div class="modal-head">
           <h3>{{ modal.id ? '编辑部番' : '新增部番' }}</h3>
@@ -85,7 +97,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { authFetch } from "./api.js";
 
 const props = defineProps({
@@ -98,6 +110,7 @@ const apiBase = computed(() =>
 
 const loading = ref(true);
 const saving = ref(false);
+const importing = ref(false);
 const error = ref("");
 const notice = ref("");
 const q = ref("");
@@ -109,6 +122,7 @@ const items = ref([]);
 const businessUnits = ref([]);
 const modal = ref({ open: false, id: null, error: "" });
 const form = ref({ model: "", business_unit: "" });
+const fileInput = ref(null);
 
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
 
@@ -205,7 +219,42 @@ async function remove(row) {
   }
 }
 
-onMounted(load);
+function pickImportFile() {
+  fileInput.value?.click?.();
+}
+
+async function onImportFile(ev) {
+  const file = ev.target?.files?.[0];
+  if (!file) return;
+  importing.value = true;
+  error.value = "";
+  try {
+    const body = new FormData();
+    body.append("file", file);
+    const res = await authFetch(`${apiBase.value}/import`, { method: "POST", body });
+    const data = await readJson(res);
+    if (!res.ok) throw new Error(data.detail || "导入失败");
+    flash(
+      `已导入 ${data.parsed ?? 0} 行：新增 ${data.added ?? 0}，更新 ${data.updated ?? 0}，共 ${data.total ?? 0} 条`,
+    );
+    page.value = 1;
+    await load();
+  } catch (err) {
+    error.value = err.message;
+  } finally {
+    importing.value = false;
+    if (ev.target) ev.target.value = "";
+  }
+}
+
+function onKeydown(ev) {
+  if (ev.key === "Escape" && modal.value.open) closeModal();
+}
+onMounted(() => {
+  load();
+  window.addEventListener("keydown", onKeydown);
+});
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <style scoped>
@@ -252,5 +301,7 @@ tbody tr:hover td { background: #f9fbf7; }
 .btn-primary { background: #548235; color: #fff; }
 .btn-primary:disabled { opacity: 0.6; }
 .btn-secondary { background: #fff; border-color: #d6dbcf; color: #444; }
+.btn-secondary:disabled { opacity: 0.6; }
+.file-input { display: none; }
 .readonly-hint { font-size: 12px; color: #9aa096; }
 </style>

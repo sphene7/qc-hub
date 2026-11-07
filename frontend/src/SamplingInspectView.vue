@@ -131,8 +131,8 @@
       </div>
     </div>
 
-    <div v-if="modal.open" class="smp-overlay" @click.self="closeModal">
-      <div class="smp-modal">
+    <div v-if="modal.open" class="smp-overlay">
+      <div class="smp-modal smp-modal-wide">
         <div class="smp-modal-head">
           <h3>{{ modal.id ? `修改 ${modal.id}` : "登记抽检" }}</h3>
           <button type="button" class="smp-modal-close" @click="closeModal">✕</button>
@@ -144,7 +144,7 @@
               <option value="">— 选择送检单 —</option>
               <option v-for="s in optionsList" :key="s.送检单号" :value="s.送检单号">
                 {{ s.送检单号 }} · {{ s.日期 }} · {{ s.机种 }} · 送检 {{ s.送检数量 ?? "-" }}
-                {{ (s.抽检 || []).length ? "（已抽检）" : "" }}
+                {{ (s.抽检 || []).length ? `（已抽检 ${(s.抽检 || []).length} 人）` : "" }}
               </option>
             </select>
           </label>
@@ -152,31 +152,49 @@
             {{ form.sid }} · {{ selectedSubmission?.机种 }} · 送检 {{ selectedSubmission?.送检数量 }}
           </div>
 
-          <div class="smp-section">
-            <p class="smp-section-title">抽检信息</p>
+          <div
+            v-for="(block, bi) in form.blocks"
+            :key="bi"
+            class="smp-section smp-inspector-block"
+          >
+            <p class="smp-section-title">
+              <span>抽检与不良 · 检验员 {{ bi + 1 }}</span>
+              <span class="smp-block-actions">
+                <button
+                  v-if="!modal.id && form.blocks.length > 1"
+                  type="button"
+                  class="smp-link danger"
+                  @click="removeBlock(bi)"
+                >
+                  删除此人
+                </button>
+              </span>
+            </p>
             <div class="smp-grid">
               <label class="smp-field">
                 <span>检验员<span class="smp-required">*</span></span>
-                <input ref="firstInput" v-model="form.检验员" list="opt-检验员" placeholder="姓名" />
+                <ComboField
+                  v-model="block.检验员"
+                  :options="options.检验员 || []"
+                  placeholder="姓名"
+                />
               </label>
               <label class="smp-field">
                 <span>外观抽检数量</span>
-                <input v-model="form.外观抽检数量" type="number" min="0" step="any" />
+                <input v-model="block.外观抽检数量" type="number" min="0" step="any" />
               </label>
               <label class="smp-field">
                 <span>机能抽检数量</span>
-                <input v-model="form.机能抽检数量" type="number" min="0" step="any" />
+                <input v-model="block.机能抽检数量" type="number" min="0" step="any" />
               </label>
             </div>
-          </div>
 
-          <div class="smp-section">
-            <p class="smp-section-title">
-              不良明细
-              <button type="button" class="smp-link" @click="addDefect">+ 添加不良</button>
-            </p>
-            <p v-if="!form.defects.length" class="smp-hint">无不良可不填，判定为 OK</p>
-            <div v-for="(d, i) in form.defects" :key="i" class="smp-defect-row">
+            <div class="smp-defect-head">
+              <span>不良明细（归属检验员：{{ block.检验员 || "未填" }}）</span>
+              <button type="button" class="smp-link" @click="addDefect(bi)">+ 添加不良</button>
+            </div>
+            <p v-if="!block.defects.length" class="smp-hint">无不良可不填，判定为 OK</p>
+            <div v-for="(d, i) in block.defects" :key="i" class="smp-defect-row">
               <label class="smp-field">
                 <span>不良属性</span>
                 <select v-model="d.不良属性">
@@ -186,30 +204,37 @@
               </label>
               <label class="smp-field">
                 <span>不良位置</span>
-                <input v-model="d.不良位置" list="opt-不良位置" />
+                <ComboField v-model="d.不良位置" :options="options.不良位置 || []" placeholder="选择或输入" />
               </label>
               <label class="smp-field">
                 <span>现象</span>
-                <input v-model="d.现象" list="opt-现象" />
+                <ComboField v-model="d.现象" :options="options.现象 || []" placeholder="选择或输入" />
               </label>
               <label class="smp-field">
                 <span>数量</span>
                 <input v-model="d.数量" type="number" min="0" step="any" />
               </label>
-              <button type="button" class="smp-link danger" @click="removeDefect(i)">删除</button>
+              <button type="button" class="smp-link danger" @click="removeDefect(bi, i)">删除</button>
+            </div>
+            <div class="smp-chips" style="margin-top: 10px">
+              <span>不良数量<strong>{{ blockPreview(block).total }}</strong></span>
+              <span>不良率<strong>{{ rateText(blockPreview(block).rate) }}</strong></span>
+              <span>
+                判定
+                <strong :class="blockPreview(block).total ? 'bad' : 'ok'">{{ blockPreview(block).judge }}</strong>
+              </span>
             </div>
           </div>
 
-          <div class="smp-chips">
-            <span>不良数量<strong>{{ preview.total }}</strong></span>
-            <span>不良率<strong>{{ rateText(preview.rate) }}</strong></span>
-            <span>抽检批<strong>{{ modal.id ? "按保存计算" : 1 }}</strong></span>
-            <span>合格批<strong>{{ preview.total ? 0 : 1 }}</strong></span>
-            <span>
-              判定
-              <strong :class="preview.total ? 'bad' : 'ok'">{{ preview.judge }}</strong>
-            </span>
-          </div>
+          <button
+            v-if="!modal.id"
+            type="button"
+            class="smp-btn smp-btn-ghost"
+            style="margin-bottom: 12px"
+            @click="addBlock"
+          >
+            + 添加检验员（另一人抽检）
+          </button>
 
           <div v-if="modal.error" class="smp-modal-error">{{ modal.error }}</div>
         </div>
@@ -221,16 +246,13 @@
         </div>
       </div>
     </div>
-
-    <datalist id="opt-检验员"><option v-for="o in options.检验员 || []" :key="o" :value="o" /></datalist>
-    <datalist id="opt-不良位置"><option v-for="o in options.不良位置 || []" :key="o" :value="o" /></datalist>
-    <datalist id="opt-现象"><option v-for="o in options.现象 || []" :key="o" :value="o" /></datalist>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import ComboField from "./ComboField.vue";
 import {
   addInspection,
   deleteInspection,
@@ -262,7 +284,6 @@ const filters = ref({ keyword: "", from: "", to: "", mine: false, result: "" });
 const preset = ref("");
 const modal = ref({ open: false, id: "", error: "", version: null });
 const form = ref(blankForm());
-const firstInput = ref(null);
 
 const resultOptions = [
   { key: "", label: "全部" },
@@ -337,21 +358,26 @@ const optionsList = computed(() => {
 const selectedSubmission = computed(
   () => entries.value.find((e) => e.送检单号 === form.value.sid) || null,
 );
-const preview = computed(() => {
-  const filled = (form.value.defects || []).filter(
+
+function emptyBlock() {
+  return { 外观抽检数量: "", 机能抽检数量: "", 检验员: "", defects: [] };
+}
+
+function blankForm() {
+  return { sid: "", blocks: [emptyBlock()] };
+}
+
+function blockPreview(block) {
+  const filled = (block.defects || []).filter(
     (d) => d.不良位置 || d.现象 || d.数量 !== "" || d.不良属性,
   );
   const total = filled.reduce((n, d) => n + (Number(d.数量) || 0), 0);
-  const appearance = Number(form.value.外观抽检数量) || 0;
+  const appearance = Number(block.外观抽检数量) || 0;
   return {
     total,
     rate: appearance > 0 ? total / appearance : null,
     judge: filled.length ? (filled.length === 1 ? "NG" : `NG×${filled.length}`) : "OK",
   };
-});
-
-function blankForm() {
-  return { sid: "", 外观抽检数量: "", 机能抽检数量: "", 检验员: "", defects: [] };
 }
 
 function flash(message) {
@@ -396,10 +422,14 @@ function openEdit(c) {
   if (!props.canInspect) return;
   form.value = {
     sid: c.送检单号,
-    外观抽检数量: c.外观抽检数量 ?? "",
-    机能抽检数量: c.机能抽检数量 ?? "",
-    检验员: c.检验员 || "",
-    defects: (c.不良组 || []).map((d) => ({ ...d })),
+    blocks: [
+      {
+        外观抽检数量: c.外观抽检数量 ?? "",
+        机能抽检数量: c.机能抽检数量 ?? "",
+        检验员: c.检验员 || "",
+        defects: (c.不良组 || []).map((d) => ({ ...d })),
+      },
+    ],
   };
   modal.value = { open: true, id: c.抽检单号, error: "", version: c.版本 ?? null };
 }
@@ -413,36 +443,56 @@ function resetFilters() {
   preset.value = "";
 }
 
-function addDefect() {
-  form.value.defects.push({ 不良属性: "", 不良位置: "", 现象: "", 数量: "" });
+function addBlock() {
+  form.value.blocks.push(emptyBlock());
 }
 
-function removeDefect(i) {
-  form.value.defects.splice(i, 1);
+function removeBlock(bi) {
+  form.value.blocks.splice(bi, 1);
+}
+
+function addDefect(bi) {
+  form.value.blocks[bi].defects.push({ 不良属性: "", 不良位置: "", 现象: "", 数量: "" });
+}
+
+function removeDefect(bi, i) {
+  form.value.blocks[bi].defects.splice(i, 1);
 }
 
 async function save() {
   saving.value = true;
   modal.value.error = "";
   try {
-    const payload = {
-      外观抽检数量: form.value.外观抽检数量,
-      机能抽检数量: form.value.机能抽检数量,
-      检验员: form.value.检验员,
-      defects: form.value.defects,
-    };
-    if (modal.value.id && modal.value.version != null) {
-      payload.expected_version = modal.value.version;
-    }
-    let data;
     if (modal.value.id) {
-      data = await updateInspection(props.workbookId, modal.value.id, payload);
+      const block = form.value.blocks[0];
+      if (!String(block.检验员 || "").trim()) throw new Error("请填写检验员");
+      const payload = {
+        外观抽检数量: block.外观抽检数量,
+        机能抽检数量: block.机能抽检数量,
+        检验员: block.检验员,
+        defects: block.defects,
+      };
+      if (modal.value.version != null) payload.expected_version = modal.value.version;
+      const data = await updateInspection(props.workbookId, modal.value.id, payload);
+      entries.value = data.entries || [];
+      flash(`已保存：${block.检验员} / ${form.value.sid}`);
     } else {
       if (!form.value.sid) throw new Error("请选择送检单");
-      data = await addInspection(props.workbookId, form.value.sid, payload);
+      const names = form.value.blocks.map((b) => String(b.检验员 || "").trim());
+      if (names.some((n) => !n)) throw new Error("每位检验员都必须填写姓名");
+      if (new Set(names).size !== names.length) throw new Error("同一送检单下检验员姓名不能重复");
+      let data = null;
+      for (const block of form.value.blocks) {
+        data = await addInspection(props.workbookId, form.value.sid, {
+          外观抽检数量: block.外观抽检数量,
+          机能抽检数量: block.机能抽检数量,
+          检验员: block.检验员,
+          defects: block.defects,
+        });
+      }
+      entries.value = data?.entries || [];
+      flash(`已保存 ${form.value.blocks.length} 位检验员 / ${form.value.sid}`);
     }
-    entries.value = data.entries || [];
-    flash(`已保存：${form.value.检验员} / ${form.value.sid}`);
     closeModal();
   } catch (err) {
     modal.value.error = err.message;
@@ -463,16 +513,6 @@ async function remove(c) {
   }
 }
 
-watch(
-  () => modal.value.open,
-  async (open) => {
-    if (open) {
-      await nextTick();
-      firstInput.value?.focus?.();
-    }
-  },
-);
-
 function onKeydown(ev) {
   if (ev.key === "Escape" && modal.value.open) closeModal();
 }
@@ -484,3 +524,26 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
+
+<style scoped>
+.smp-modal-wide {
+  width: min(920px, 100%);
+}
+.smp-inspector-block {
+  border-color: #c9d6bc;
+  background: #fbfcf8;
+}
+.smp-block-actions {
+  display: flex;
+  gap: 8px;
+}
+.smp-defect-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 0 8px;
+  font-size: 12.5px;
+  color: #5d645a;
+  font-weight: 600;
+}
+</style>

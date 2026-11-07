@@ -127,7 +127,7 @@
       </div>
     </div>
 
-    <div v-if="modal.open" class="smp-overlay" @click.self="closeModal">
+    <div v-if="modal.open" class="smp-overlay">
       <div class="smp-modal">
         <div class="smp-modal-head">
           <h3>异常处理 · {{ modal.id }}</h3>
@@ -170,7 +170,7 @@
               </label>
               <label class="smp-field">
                 <span>责任单位</span>
-                <input v-model="form.责任单位" list="opt-送检单位" />
+                <ComboField v-model="form.责任单位" :options="options.送检单位 || []" placeholder="选择或输入" />
               </label>
               <label class="smp-field">
                 <span>责任人</span>
@@ -178,11 +178,15 @@
               </label>
               <label class="smp-field">
                 <span>确认者</span>
-                <input v-model="form.确认者" />
+                <ComboField v-model="form.确认者" :options="options.确认者 || []" placeholder="选择或输入" />
               </label>
               <label class="smp-field">
                 <span>课室负责人</span>
-                <input v-model="form.课室负责人" />
+                <ComboField
+                  v-model="form.课室负责人"
+                  :options="options.课室负责人 || []"
+                  placeholder="选择或输入"
+                />
               </label>
               <label class="smp-field">
                 <span>责任课级负责人</span>
@@ -234,12 +238,12 @@
       </div>
     </div>
 
-    <datalist id="opt-送检单位"><option v-for="o in options.送检单位 || []" :key="o" :value="o" /></datalist>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import ComboField from "./ComboField.vue";
 import RichTextField from "./RichTextField.vue";
 import {
   deleteException,

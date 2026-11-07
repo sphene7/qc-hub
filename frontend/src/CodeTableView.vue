@@ -15,7 +15,7 @@
       <p v-if="syncHint" class="sync-hint oqc-sync-top">{{ syncHint }}</p>
 
       <div class="rule-tabs oqc-page-tabs">
-        <button type="button" :class="{ on: oqcPage === 1 }" @click="oqcPage = 1">第一页 · 不良代码</button>
+        <button type="button" :class="{ on: oqcPage === 1 }" @click="oqcPage = 1">第一页 · 不良现象</button>
         <button type="button" :class="{ on: oqcPage === 2 }" @click="oqcPage = 2">第二页 · 机种 · 课室</button>
         <button type="button" :class="{ on: oqcPage === 3 }" @click="oqcPage = 3">第三页 · 机种 · 负责人</button>
         <button type="button" :class="{ on: oqcPage === 4 }" @click="oqcPage = 4">第四页 · 课室负责人 · 课室</button>
@@ -26,14 +26,17 @@
         <section v-show="oqcPage === 1" class="oqc-section">
           <header class="oqc-section-head">
             <div>
-              <h3>不良代码 · 大类</h3>
+              <h3>不良现象 · 大类</h3>
               <p class="section-desc">
                 共 <strong>{{ oqcDefectCategoryGroups.length }}</strong> 个大类、
-                <strong>{{ totalOqcDefects }}</strong> 项代码
-                <span class="overview-hint">· 主表按「不良描述」选择现象，可多组录入</span>
+                <strong>{{ totalOqcDefects }}</strong> 项描述
+                <span class="overview-hint">· 已去掉不良代码，主表按「不良描述」选择现象</span>
               </p>
             </div>
-            <button v-if="canEdit" type="button" class="primary-btn" @click="openOqcDefectMajorCreate">添加大类</button>
+            <div v-if="canEdit" class="card-head-actions">
+              <button type="button" class="primary-btn" @click="openOqcDefectMajorCreate">添加大类</button>
+              <button type="button" class="ghost-btn" @click="openOqcDefectBatchCreate()">批量新增</button>
+            </div>
           </header>
           <div v-if="oqcDefectCategoryGroups.length" class="category-grid">
             <article
@@ -54,7 +57,13 @@
                     class="card-add-btn"
                     title="在此大类下添加"
                     @click="openOqcDefectCreateForCategory(group.category)"
-                  >+ 代码</button>
+                  >+ 描述</button>
+                  <button
+                    type="button"
+                    class="card-add-btn"
+                    title="批量添加描述"
+                    @click="openOqcDefectBatchCreate(group.category)"
+                  >批量</button>
                   <button type="button" class="icon-btn" title="编辑大类" @click="openOqcDefectMajorEdit(group.category)">✏️</button>
                   <button type="button" class="icon-btn" title="删除大类" @click="confirmOqcDefectMajorDelete(group)">🗑️</button>
                 </div>
@@ -66,7 +75,6 @@
                   class="classification-item"
                   :class="group.className"
                 >
-                  <span class="cls-index defect-code">{{ row.code }}</span>
                   <span class="cls-name">{{ row.desc }}</span>
                   <div v-if="canEdit" class="cls-actions">
                     <button type="button" class="icon-btn" title="编辑" @click="openOqcDefectEdit(row)">✏️</button>
@@ -74,10 +82,10 @@
                   </div>
                 </li>
               </ul>
-              <p v-if="!group.items.length" class="category-empty-hint">暂无代码，点击「+ 代码」添加小类</p>
+              <p v-if="!group.items.length" class="category-empty-hint">暂无描述，点击「+ 描述」或「批量」添加</p>
             </article>
           </div>
-          <p v-else class="empty-hint">暂无不良代码</p>
+          <p v-else class="empty-hint">暂无不良现象</p>
         </section>
 
         <section v-show="oqcPage === 1" class="oqc-section oqc-section--meta">
@@ -299,15 +307,16 @@
           <div>
             <h3>部番对照 · 事业部</h3>
             <p class="section-desc">
-              送检登记填「部番」时按这张表自动匹配「事业部」：先精确匹配部番，其次按「-」前的基型唯一匹配。
+              来自《OQC 表格对应表》：送检登记填「部番」时按这张表自动匹配「事业部」
+             （先精确匹配部番，其次按「-」前的基型唯一匹配）。可上传 xls/xlsx/csv 批量导入。
             </p>
           </div>
         </header>
-        <ModelBuManagement :workbook-id="workbookId" :can-edit="canHandle" />
+        <ModelBuManagement :workbook-id="workbookId" :can-edit="canEdit || canHandle" />
       </section>
 
       <!-- OQC editors -->
-      <div v-if="oqcDefectEditorOpen" class="modal-backdrop" @mousedown.self="closeOqcDefectEditor">
+      <div v-if="oqcDefectEditorOpen" class="modal-backdrop">
         <div class="editor-dialog modal-panel">
           <div class="dialog-head">
             <h3>{{ oqcDefectDialogTitle }}</h3>
@@ -320,19 +329,15 @@
                 v-model.trim="formOqcCategory"
                 required
                 list="oqc-category-options"
-                placeholder="不良代码大类名称"
+                placeholder="不良现象大类名称"
               />
               <datalist id="oqc-category-options">
                 <option v-for="cat in oqcDefectCategories" :key="cat" :value="cat" />
               </datalist>
             </label>
             <label v-if="oqcDefectIntent === 'minor' || oqcDefectIntent === 'full'" class="field">
-              <span>代码（小类）</span>
-              <input v-model.trim="formOqcCode" required placeholder="不良代码" />
-            </label>
-            <label v-if="oqcDefectIntent === 'minor' || oqcDefectIntent === 'full'" class="field">
               <span>不良描述（现象）</span>
-              <input v-model.trim="formOqcDesc" required placeholder="主表选代码自动带出" />
+              <input v-model.trim="formOqcDesc" required placeholder="主表按描述选择现象" />
             </label>
             <p v-if="oqcEditorError" class="editor-error">{{ oqcEditorError }}</p>
             <div class="dialog-actions">
@@ -343,7 +348,45 @@
         </div>
         </div>
 
-      <div v-if="oqcModelSectionEditorOpen" class="modal-backdrop" @mousedown.self="closeOqcModelSectionEditor">
+      <div v-if="oqcDefectBatchOpen" class="modal-backdrop">
+        <div class="editor-dialog modal-panel">
+          <div class="dialog-head">
+            <h3>批量新增不良描述</h3>
+            <button type="button" class="icon-btn" @click="closeOqcDefectBatch">✕</button>
+          </div>
+          <form class="editor-body" @submit.prevent="saveOqcDefectBatch">
+            <label class="field">
+              <span>大类</span>
+              <input
+                v-model.trim="formOqcBatchCategory"
+                required
+                list="oqc-batch-category-options"
+                placeholder="选择或输入大类"
+              />
+              <datalist id="oqc-batch-category-options">
+                <option v-for="cat in oqcDefectCategories" :key="cat" :value="cat" />
+              </datalist>
+            </label>
+            <label class="field">
+              <span>不良描述（每行一条）</span>
+              <textarea
+                v-model="formOqcBatchDescs"
+                rows="10"
+                required
+                placeholder="每行一条不良描述，例如：&#10;贴纸开胶分层&#10;镜片划伤&#10;螺丝滑牙"
+              />
+            </label>
+            <p class="field-hint">不需要填写不良代码；保存时自动生成内部编号。</p>
+            <p v-if="oqcEditorError" class="editor-error">{{ oqcEditorError }}</p>
+            <div class="dialog-actions">
+              <button type="button" class="ghost-btn" @click="closeOqcDefectBatch">取消</button>
+              <button type="submit" class="primary-btn" :disabled="oqcSaving">{{ oqcSaving ? "保存中…" : "批量保存" }}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div v-if="oqcModelSectionEditorOpen" class="modal-backdrop">
         <div class="editor-dialog modal-panel">
           <div class="dialog-head">
             <h3>{{ oqcModelSectionDialogTitle }}</h3>
@@ -375,7 +418,7 @@
         </div>
         </div>
 
-      <div v-if="oqcOwnerBulkRenameOpen" class="modal-backdrop" @mousedown.self="closeOqcOwnerBulkRename">
+      <div v-if="oqcOwnerBulkRenameOpen" class="modal-backdrop">
         <div class="editor-dialog modal-panel">
           <div class="dialog-head">
             <h3>一键更换负责人</h3>
@@ -426,7 +469,7 @@
         </div>
       </div>
 
-      <div v-if="oqcModelOwnerEditorOpen" class="modal-backdrop" @mousedown.self="closeOqcModelOwnerEditor">
+      <div v-if="oqcModelOwnerEditorOpen" class="modal-backdrop">
         <div class="editor-dialog modal-panel">
           <div class="dialog-head">
             <h3>{{ oqcModelOwnerDialogTitle }}</h3>
@@ -458,7 +501,7 @@
         </div>
       </div>
 
-      <div v-if="oqcSectionHeadEditorOpen" class="modal-backdrop" @mousedown.self="closeOqcSectionHeadEditor">
+      <div v-if="oqcSectionHeadEditorOpen" class="modal-backdrop">
         <div class="editor-dialog modal-panel">
           <div class="dialog-head">
             <h3>{{ oqcSectionHeadDialogTitle }}</h3>
@@ -601,7 +644,7 @@
         <p v-if="!inspectionModules.length" class="empty-hint">暂无模块规则</p>
       </div>
 
-      <div v-if="editorOpen" class="modal-backdrop" @mousedown.self="closeEditor">
+      <div v-if="editorOpen" class="modal-backdrop">
         <div class="editor-dialog modal-panel">
           <div class="dialog-head">
             <h3>{{ classificationEditorTitle }}</h3>
@@ -652,7 +695,7 @@
         </div>
       </div>
 
-      <div v-if="moduleEditorOpen" class="modal-backdrop" @mousedown.self="closeModuleEditor">
+      <div v-if="moduleEditorOpen" class="modal-backdrop">
         <div class="editor-dialog modal-panel">
           <div class="dialog-head">
             <h3>{{ editingModuleRow ? "编辑模块" : "添加模块" }}</h3>
@@ -720,7 +763,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { authFetch } from "./api.js";
 import ComboField from "./ComboField.vue";
 import ModelBuManagement from "./ModelBuManagement.vue";
@@ -770,6 +813,7 @@ const oqcModelOwners = ref([]);
 const oqcSectionHeads = ref([]);
 const oqcDefectCategories = ref([]);
 const oqcDefectEditorOpen = ref(false);
+const oqcDefectBatchOpen = ref(false);
 const oqcModelSectionEditorOpen = ref(false);
 const oqcModelOwnerEditorOpen = ref(false);
 const oqcSectionHeadEditorOpen = ref(false);
@@ -780,6 +824,8 @@ const editingOqcSectionHead = ref(null);
 const formOqcCode = ref("");
 const formOqcDesc = ref("");
 const formOqcCategory = ref("");
+const formOqcBatchCategory = ref("");
+const formOqcBatchDescs = ref("");
 const formOqcModel = ref("");
 const formOqcSection = ref("");
 const formOqcOwner = ref("");
@@ -1290,10 +1336,10 @@ const oqcDefectIntent = ref("full");
 
 const oqcDefectDialogTitle = computed(() => {
   if (oqcDefectIntent.value === "major-edit") return "编辑大类";
-  if (editingOqcDefect.value) return "编辑不良代码（小类）";
+  if (editingOqcDefect.value) return "编辑不良描述";
   if (oqcDefectIntent.value === "major") return "添加大类";
-  if (oqcDefectIntent.value === "minor") return "添加代码（小类）";
-  return "添加不良代码";
+  if (oqcDefectIntent.value === "minor") return "添加不良描述";
+  return "添加不良描述";
 });
 
 const oqcDefectCategoryGroups = computed(() => {
@@ -1713,7 +1759,7 @@ async function confirmOqcDefectMajorDelete(group) {
   const name = group.category;
   const n = group.count || 0;
   const msg = n
-    ? `确定删除大类「${name}」及其下 ${n} 项不良代码？\n若代码已被抽检明细引用将无法删除。`
+    ? `确定删除大类「${name}」及其下 ${n} 项不良描述？\n若已被抽检明细引用将无法删除。`
     : `确定删除大类「${name}」？`;
   if (!window.confirm(msg)) return;
   const res = await authFetch(
@@ -1726,6 +1772,57 @@ async function confirmOqcDefectMajorDelete(group) {
     return;
   }
   await oqcPersist(data);
+}
+
+function openOqcDefectBatchCreate(category = "") {
+  formOqcBatchCategory.value = typeof category === "string" ? category : "";
+  formOqcBatchDescs.value = "";
+  oqcEditorError.value = "";
+  oqcDefectBatchOpen.value = true;
+}
+
+function closeOqcDefectBatch() {
+  oqcDefectBatchOpen.value = false;
+  formOqcBatchCategory.value = "";
+  formOqcBatchDescs.value = "";
+  oqcEditorError.value = "";
+}
+
+async function saveOqcDefectBatch() {
+  if (!props.workbookId || oqcSaving.value) return;
+  const descs = String(formOqcBatchDescs.value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!formOqcBatchCategory.value.trim()) {
+    oqcEditorError.value = "请填写大类";
+    return;
+  }
+  if (!descs.length) {
+    oqcEditorError.value = "请至少填写一条不良描述";
+    return;
+  }
+  oqcSaving.value = true;
+  oqcEditorError.value = "";
+  try {
+    const res = await authFetch(`/api/workbooks/${props.workbookId}/oqc-defects/batch`, {
+      method: "POST",
+      body: JSON.stringify(
+        oqcBody({
+          category: formOqcBatchCategory.value,
+          descs,
+        }),
+      ),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "批量保存失败");
+    await oqcPersist(data);
+    closeOqcDefectBatch();
+  } catch (err) {
+    oqcEditorError.value = String(err.message || err);
+  } finally {
+    oqcSaving.value = false;
+  }
 }
 
 async function saveOqcDefectEditor() {
@@ -1745,23 +1842,25 @@ async function saveOqcDefectEditor() {
         ),
       });
     } else {
-    const body = oqcBody({
-      category: formOqcCategory.value,
-      code: oqcDefectIntent.value === "major" ? null : formOqcCode.value,
-      desc: oqcDefectIntent.value === "major" ? null : formOqcDesc.value,
-    });
-    if (editingOqcDefect.value) {
-      body.old_code = editingOqcDefect.value.code;
-      res = await authFetch(
-        `/api/workbooks/${props.workbookId}/oqc-defects/${encodeURIComponent(editingOqcDefect.value.code)}`,
-        { method: "PUT", body: JSON.stringify(body) },
-      );
-    } else {
-      res = await authFetch(`/api/workbooks/${props.workbookId}/oqc-defects`, {
-        method: "POST",
-        body: JSON.stringify(body),
+      const body = oqcBody({
+        category: formOqcCategory.value,
+        // 新增时不传代码，后端自动编号；编辑时保留原内部编号
+        code: oqcDefectIntent.value === "major" ? null : editingOqcDefect.value?.code || null,
+        desc: oqcDefectIntent.value === "major" ? null : formOqcDesc.value,
       });
-    }
+      if (editingOqcDefect.value) {
+        body.old_code = editingOqcDefect.value.code;
+        body.code = editingOqcDefect.value.code;
+        res = await authFetch(
+          `/api/workbooks/${props.workbookId}/oqc-defects/${encodeURIComponent(editingOqcDefect.value.code)}`,
+          { method: "PUT", body: JSON.stringify(body) },
+        );
+      } else {
+        res = await authFetch(`/api/workbooks/${props.workbookId}/oqc-defects`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      }
     }
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "保存失败");
@@ -1775,7 +1874,7 @@ async function saveOqcDefectEditor() {
 }
 
 async function confirmOqcDefectDelete(row) {
-  if (!window.confirm(`确定删除不良代码「${row.code}」？`)) return;
+  if (!window.confirm(`确定删除不良描述「${row.desc || row.code}」？`)) return;
   const res = await authFetch(
     `/api/workbooks/${props.workbookId}/oqc-defects/${encodeURIComponent(row.code)}?code_sheet=${encodeURIComponent(codeSheetResolved.value || props.sheetName)}`,
     { method: "DELETE" },
@@ -2263,6 +2362,41 @@ async function loadData() {
   }
 }
 
+function onCodeTableKeydown(ev) {
+  if (ev.key !== "Escape") return;
+  if (oqcDefectBatchOpen.value) {
+    closeOqcDefectBatch();
+    return;
+  }
+  if (oqcDefectEditorOpen.value) {
+    closeOqcDefectEditor();
+    return;
+  }
+  if (oqcModelSectionEditorOpen.value) {
+    closeOqcModelSectionEditor();
+    return;
+  }
+  if (oqcOwnerBulkRenameOpen.value) {
+    closeOqcOwnerBulkRename();
+    return;
+  }
+  if (oqcModelOwnerEditorOpen.value) {
+    closeOqcModelOwnerEditor();
+    return;
+  }
+  if (oqcSectionHeadEditorOpen.value) {
+    closeOqcSectionHeadEditor();
+    return;
+  }
+  if (editorOpen.value) {
+    closeEditor();
+    return;
+  }
+  if (moduleEditorOpen.value) {
+    closeModuleEditor();
+  }
+}
+
 watch(
   () => [props.workbookId, props.sheetName],
   ([wid]) => {
@@ -2270,6 +2404,9 @@ watch(
   },
   { immediate: true },
 );
+
+onMounted(() => window.addEventListener("keydown", onCodeTableKeydown));
+onBeforeUnmount(() => window.removeEventListener("keydown", onCodeTableKeydown));
 
 watch(oqcModelOwnerFilterOwnerOptions, (opts) => {
   const cur = oqcModelOwnerFilterOwner.value.trim();

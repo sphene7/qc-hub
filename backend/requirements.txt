@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 openpyxl
+xlrd==1.2.0
 pandas
 python-multipart
 pymysql

@@ -295,4 +295,6 @@
 
 /* 只读输入 */
 input.readonly,
-.smp-field input.readonly { background: #f4f6f2; color: #6f756c; }
+.smp-field input.readonly,
+input.locked,
+.smp-field input.locked { background: #f4f6f2; color: #6f756c; }

@@ -451,6 +451,21 @@ def _update_all_model_field(code_df: pd.DataFrame, model: str, field: str, value
     return out
 
 
+def _next_defect_code(code_df: pd.DataFrame) -> str:
+    """内部主键用自动编号；界面不再展示/要求填写不良代码。"""
+    used = set()
+    if code_df is not None and not code_df.empty and "代码" in code_df.columns:
+        for val in code_df["代码"].tolist():
+            if not _is_blank(val):
+                used.add(str(val).strip())
+    seq = 1
+    while True:
+        candidate = f"D{seq:04d}"
+        if candidate not in used:
+            return candidate
+        seq += 1
+
+
 def create_oqc_defect(
     item: dict[str, Any], *, code_sheet: str | None, code: str | None, desc: str | None, category: str
 ) -> dict[str, Any]:
@@ -484,11 +499,13 @@ def create_oqc_defect(
         sync = sync_oqc_rows_from_code(item)
         return {**oqc_payload(item["frames"][resolved], code_sheet=resolved, main_sheet=_find_oqc_main_sheet(spec)), "sync": sync}
 
-    if not code or not desc:
-        raise ValueError("代码和不良描述不能为空")
+    if not desc:
+        raise ValueError("不良描述不能为空")
+    if not code:
+        code = _next_defect_code(code_df)
 
     if code in _pair_lookup(code_df, "代码", "不良描述"):
-        raise ValueError(f"不良代码「{code}」已存在")
+        raise ValueError(f"不良项「{code}」已存在")
 
     slot_mask = code_df["大类"].astype(str).str.strip().eq(category) & code_df["代码"].map(_is_blank)
     if slot_mask.any():
@@ -505,6 +522,32 @@ def create_oqc_defect(
         item["frames"][resolved] = pd.concat([code_df, pd.DataFrame([row])], ignore_index=True)
     sync = sync_oqc_rows_from_code(item)
     return {**oqc_payload(item["frames"][resolved], code_sheet=resolved, main_sheet=_find_oqc_main_sheet(spec)), "sync": sync}
+
+
+def create_oqc_defects_batch(
+    item: dict[str, Any], *, code_sheet: str | None, category: str, descs: list[str]
+) -> dict[str, Any]:
+    """批量新增不良描述（每行一条）；代码自动生成。"""
+    category = (category or "").strip()
+    if not category:
+        raise ValueError("大类不能为空")
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in descs or []:
+        text = str(raw or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        cleaned.append(text)
+    if not cleaned:
+        raise ValueError("请至少填写一条不良描述")
+
+    result: dict[str, Any] | None = None
+    for desc in cleaned:
+        result = create_oqc_defect(item, code_sheet=code_sheet, code=None, desc=desc, category=category)
+    assert result is not None
+    result["created_count"] = len(cleaned)
+    return result
 
 
 def update_oqc_defect(

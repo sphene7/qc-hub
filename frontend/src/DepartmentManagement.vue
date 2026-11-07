@@ -65,7 +65,7 @@
       </table>
     </div>
 
-    <div v-if="modal.open" class="overlay" @click.self="closeModal">
+    <div v-if="modal.open" class="overlay">
       <div class="modal">
         <div class="modal-head">
           <h3>{{ modal.id ? '编辑部门' : modal.parentId ? '新增下级部门' : '新增一级部门' }}</h3>
@@ -97,7 +97,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { authFetch } from "./api.js";
 
 const loading = ref(true);
@@ -261,7 +261,14 @@ async function remove(d) {
   }
 }
 
-onMounted(load);
+function onKeydown(ev) {
+  if (ev.key === "Escape" && modal.value.open) closeModal();
+}
+onMounted(() => {
+  load();
+  window.addEventListener("keydown", onKeydown);
+});
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 </script>
 
 <style scoped>

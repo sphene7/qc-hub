@@ -63,7 +63,7 @@
     </div>
 
     <!-- Add/Edit Form Modal -->
-    <div v-if="showAddForm" class="modal-overlay" @click.self="showAddForm = false">
+    <div v-if="showAddForm" class="modal-overlay">
       <div class="modal-content">
         <h3>新增数据</h3>
         <form @submit.prevent="addRow" class="data-form">

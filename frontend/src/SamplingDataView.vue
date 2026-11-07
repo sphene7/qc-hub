@@ -132,7 +132,7 @@
     </div>
 
     <!-- Edit / Create dialog -->
-    <div v-if="editorOpen" class="modal-backdrop" @mousedown.self="closeEditor">
+    <div v-if="editorOpen" class="modal-backdrop">
       <div class="editor-dialog modal-panel">
         <div class="dialog-head">
           <h3>{{ editingRow ? '编辑抽检记录' : '新增抽检记录' }}</h3>

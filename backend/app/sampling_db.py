@@ -330,7 +330,7 @@ def _split_parts(value: Any) -> list[str]:
     return parts
 
 
-def options(item: dict[str, Any], db: Session) -> dict[str, list[str]]:
+def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
     project = _project(db, item["id"])
     if project is None:
         return {}
@@ -359,8 +359,15 @@ def options(item: dict[str, Any], db: Session) -> dict[str, list[str]]:
     )
     phenomena = [d.phenomenon for d in defects]
     locations = [d.location for d in defects]
+    sections_from_code: list[str] = []
+    confirmers_from_code: list[str] = []
+    heads_from_code: list[str] = []
+    models_from_code: list[str] = []
+    series_sections: dict[str, str] = {}
+    series_confirmers: dict[str, str] = {}
+    section_heads: dict[str, str] = {}
 
-    # 历史数据来源：OQC 宽表 + 代码表（不良描述），让「不良位置 / 现象」有候选
+    # 历史数据 + 类别管理代码表（下拉/联动来源）
     frames = item.get("frames") or {}
     for name, df in frames.items():
         if df is None or getattr(df, "empty", True):
@@ -375,8 +382,24 @@ def options(item: dict[str, Any], db: Session) -> dict[str, list[str]]:
                                 locations.append(value)
                             else:
                                 phenomena.append(value)
-        elif sheet.strip() == "代码" and "不良描述" in df.columns:
-            phenomena.extend(df["不良描述"].tolist())
+        is_code_sheet = sheet.strip() == "代码" or (
+            "代码" in sheet and ("不良描述" in (df.columns if df is not None else []) or "课室" in (df.columns if df is not None else []))
+        )
+        if is_code_sheet:
+            from .code_table_oqc import build_oqc_lookups
+
+            lookups = build_oqc_lookups(df)
+            series_sections = {**series_sections, **(lookups.get("series_sections") or {})}
+            series_confirmers = {**series_confirmers, **(lookups.get("series_confirmers") or {})}
+            section_heads = {**section_heads, **(lookups.get("section_heads") or {})}
+            sections_from_code.extend((lookups.get("series_sections") or {}).values())
+            sections_from_code.extend((lookups.get("section_heads") or {}).keys())
+            confirmers_from_code.extend((lookups.get("series_confirmers") or {}).values())
+            heads_from_code.extend((lookups.get("section_heads") or {}).values())
+            models_from_code.extend((lookups.get("series_sections") or {}).keys())
+            models_from_code.extend((lookups.get("series_confirmers") or {}).keys())
+            if "不良描述" in df.columns:
+                phenomena.extend(df["不良描述"].tolist())
 
     locations = [part for value in locations for part in _split_parts(value)]
     phenomena = [part for value in phenomena for part in _split_parts(value)]
@@ -386,17 +409,22 @@ def options(item: dict[str, Any], db: Session) -> dict[str, list[str]]:
     departments = [d.name for d in db.query(Department).filter(Department.active.is_(True)).all()]
 
     return {
-        "部番": uniq([s.part_no for s in subs]),
-        "机种": uniq([s.model for s in subs]),
-        "送检单位": uniq([s.department for s in subs] + departments),
+        "部番": uniq([s.part_no for s in subs] + models_from_code),
+        "机种": uniq([s.model for s in subs] + models_from_code),
+        "送检单位": uniq([s.department for s in subs] + departments + sections_from_code),
         "事业部": uniq([s.business_unit for s in subs]),
         "送检类型": ["正常送检", "试做送检"],
         "检验员": uniq([c.inspector for c in inspections]),
         "不良位置": uniq(locations),
         "现象": uniq(phenomena),
         "不良属性": ["外观不良", "性能不良"],
-        "确认者": uniq([s.confirmer for s in subs]),
-        "课室负责人": uniq([s.room_owner for s in subs]),
+        "确认者": uniq([s.confirmer for s in subs] + confirmers_from_code),
+        "课室负责人": uniq([s.room_owner for s in subs] + heads_from_code),
+        "lookups": {
+            "series_sections": series_sections,
+            "series_confirmers": series_confirmers,
+            "section_heads": section_heads,
+        },
     }
 
 

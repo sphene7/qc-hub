@@ -20,7 +20,9 @@
     <div class="smp-filters card">
       <div class="smp-search"><input v-model="filters.partNo" placeholder="部番" /></div>
       <div class="smp-search"><input v-model="filters.model" placeholder="机种" /></div>
-      <div class="smp-search"><input v-model="filters.dept" placeholder="送检单位" /></div>
+      <div class="smp-search">
+        <ComboField v-model="filters.dept" :options="options.送检单位 || []" placeholder="送检单位" />
+      </div>
       <div class="smp-seg">
         <button
           v-for="opt in statusOptions"
@@ -123,7 +125,7 @@
       </div>
     </div>
 
-    <div v-if="modal.open" class="smp-overlay" @click.self="closeModal">
+    <div v-if="modal.open" class="smp-overlay">
       <div class="smp-modal">
         <div class="smp-modal-head">
           <h3>{{ modal.id ? `编辑 ${modal.id}` : "新增送检单" }}</h3>
@@ -139,11 +141,17 @@
               </label>
               <label class="smp-field">
                 <span>送检类型</span>
-                <input v-model="form.送检类型" list="opt-送检类型" />
+                <ComboField v-model="form.送检类型" :options="options.送检类型 || []" placeholder="选择或输入" />
               </label>
               <label class="smp-field">
                 <span>部番<span class="smp-required">*</span></span>
-                <input ref="firstInput" v-model="form.部番" list="opt-部番" placeholder="如 T5724-A1" @change="onPartNoChange" />
+                <ComboField
+                  v-model="form.部番"
+                  :options="options.部番 || []"
+                  placeholder="如 T5724-A1"
+                  @change="onPartNoChange"
+                  @update:model-value="onPartNoChange"
+                />
               </label>
               <label class="smp-field">
                 <span>机种（部番 - 前）</span>
@@ -151,11 +159,17 @@
               </label>
               <label class="smp-field">
                 <span>事业部</span>
-                <input v-model="form.事业部" list="opt-事业部" placeholder="按部番自动匹配" />
+                <ComboField v-model="form.事业部" :options="options.事业部 || []" placeholder="按部番自动匹配" />
               </label>
               <label class="smp-field">
                 <span>送检单位</span>
-                <input v-model="form.送检单位" list="opt-送检单位" :readonly="!!dept" :class="{ locked: !!dept }" />
+                <input v-if="dept" v-model="form.送检单位" readonly class="locked" />
+                <ComboField
+                  v-else
+                  v-model="form.送检单位"
+                  :options="options.送检单位 || []"
+                  placeholder="选择或输入送检单位"
+                />
               </label>
               <label class="smp-field">
                 <span>送检数量<span class="smp-required">*</span></span>
@@ -175,11 +189,19 @@
               </label>
               <label class="smp-field">
                 <span>确认者</span>
-                <input v-model="form.确认者" list="opt-确认者" />
+                <ComboField
+                  v-model="form.确认者"
+                  :options="options.确认者 || []"
+                  placeholder="选择或输入确认者"
+                />
               </label>
               <label class="smp-field">
                 <span>课室负责人</span>
-                <input v-model="form.课室负责人" list="opt-课室负责人" />
+                <ComboField
+                  v-model="form.课室负责人"
+                  :options="options.课室负责人 || []"
+                  placeholder="选择或输入课室负责人"
+                />
               </label>
               <label class="smp-field full">
                 <span>层别备注</span>
@@ -197,21 +219,14 @@
         </div>
       </div>
     </div>
-
-    <datalist id="opt-部番"><option v-for="o in options.部番 || []" :key="o" :value="o" /></datalist>
-    <datalist id="opt-事业部"><option v-for="o in options.事业部 || []" :key="o" :value="o" /></datalist>
-    <datalist id="opt-机种"><option v-for="o in options.机种 || []" :key="o" :value="o" /></datalist>
-    <datalist id="opt-送检单位"><option v-for="o in options.送检单位 || []" :key="o" :value="o" /></datalist>
-    <datalist id="opt-送检类型"><option v-for="o in options.送检类型 || []" :key="o" :value="o" /></datalist>
-    <datalist id="opt-确认者"><option v-for="o in options.确认者 || []" :key="o" :value="o" /></datalist>
-    <datalist id="opt-课室负责人"><option v-for="o in options.课室负责人 || []" :key="o" :value="o" /></datalist>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { authFetch } from "./api.js";
+import ComboField from "./ComboField.vue";
 import {
   createSubmission,
   defectCount,
@@ -224,6 +239,8 @@ import {
   todayStr,
   updateSubmission,
 } from "./samplingApi.js";
+
+const DEPT_CACHE_KEY = "qc-hub:last-submit-dept";
 
 const props = defineProps({
   workbookId: String,
@@ -247,7 +264,6 @@ const status = ref("all");
 const preset = ref("");
 const modal = ref({ open: false, id: "", error: "", version: null });
 const form = ref(blankForm());
-const firstInput = ref(null);
 
 const statusOptions = [
   { key: "all", label: "全部" },
@@ -263,6 +279,7 @@ const presetOptions = [
 ];
 
 const statusOf = submissionStatus;
+const lookups = computed(() => options.value.lookups || {});
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -320,6 +337,26 @@ function nowLocalStr() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+function lastDept() {
+  if (props.dept) return props.dept;
+  try {
+    return localStorage.getItem(DEPT_CACHE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberDept(value) {
+  if (props.dept) return;
+  const v = String(value || "").trim();
+  if (!v) return;
+  try {
+    localStorage.setItem(DEPT_CACHE_KEY, v);
+  } catch {
+    /* ignore */
+  }
+}
+
 function blankForm() {
   return {
     日期: nowLocalStr(),
@@ -327,7 +364,7 @@ function blankForm() {
     部番: "",
     机种: "",
     事业部: "",
-    送检单位: "",
+    送检单位: lastDept(),
     送检数量: "",
     同批送检次数: "",
     是否紧急出货: "",
@@ -337,9 +374,38 @@ function blankForm() {
   };
 }
 
+function applyLookupsFromModel() {
+  const model = String(form.value.机种 || "").trim();
+  const part = String(form.value.部番 || "").trim();
+  const lu = lookups.value;
+  const sectionMap = lu.series_sections || {};
+  const confirmerMap = lu.series_confirmers || {};
+  const headMap = lu.section_heads || {};
+
+  const section =
+    sectionMap[part] ||
+    sectionMap[model] ||
+    Object.entries(sectionMap).find(([k]) => part.startsWith(k) || model.startsWith(k))?.[1] ||
+    "";
+  if (section && !props.dept) {
+    form.value.送检单位 = section;
+  }
+
+  const confirmer =
+    confirmerMap[part] ||
+    confirmerMap[model] ||
+    Object.entries(confirmerMap).find(([k]) => part.startsWith(k) || model.startsWith(k))?.[1] ||
+    "";
+  if (confirmer) form.value.确认者 = confirmer;
+
+  const unit = String(form.value.送检单位 || "").trim();
+  if (unit && headMap[unit]) form.value.课室负责人 = headMap[unit];
+}
+
 async function onPartNoChange() {
   const part = String(form.value.部番 || "").trim();
   form.value.机种 = part.split("-")[0];
+  applyLookupsFromModel();
   if (!part || !props.workbookId) return;
   try {
     const res = await authFetch(
@@ -351,6 +417,15 @@ async function onPartNoChange() {
     /* 匹配失败不阻塞填写 */
   }
 }
+
+watch(
+  () => form.value.送检单位,
+  (unit) => {
+    const headMap = lookups.value.section_heads || {};
+    const key = String(unit || "").trim();
+    if (key && headMap[key]) form.value.课室负责人 = headMap[key];
+  },
+);
 
 function flash(message) {
   notice.value = message;
@@ -376,6 +451,7 @@ async function load() {
 
 function openNew() {
   form.value = blankForm();
+  if (props.dept) form.value.送检单位 = props.dept;
   modal.value = { open: true, id: "", error: "", version: null };
 }
 
@@ -414,6 +490,7 @@ async function save() {
       ? await updateSubmission(props.workbookId, modal.value.id, payload)
       : await createSubmission(props.workbookId, payload);
     entries.value = data.entries || [];
+    rememberDept(form.value.送检单位);
     flash(`已保存 ${data.submission?.送检单号 || ""}`);
     closeModal();
   } catch (err) {
@@ -442,16 +519,6 @@ function quickInspect(entry) {
     query: { sid: entry.送检单号 },
   });
 }
-
-watch(
-  () => modal.value.open,
-  async (open) => {
-    if (open) {
-      await nextTick();
-      firstInput.value?.focus?.();
-    }
-  },
-);
 
 function onKeydown(ev) {
   if (ev.key === "Escape" && modal.value.open) closeModal();

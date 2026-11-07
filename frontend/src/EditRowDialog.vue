@@ -1,5 +1,5 @@
 <template>
-  <div v-if="visible" class="modal-backdrop" @mousedown.self="close">
+  <div v-if="visible" class="modal-backdrop">
     <div class="dialog modal-panel" role="dialog" aria-modal="true">
       <div class="dialog-head">
         <h3>{{ title }}</h3>
@@ -120,7 +120,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { authFetch } from "./api.js";
 import ComboField from "./ComboField.vue";
 import DateField from "./DateField.vue";
@@ -285,7 +285,15 @@ async function ensureLookups() {
   }
 }
 
-onMounted(ensureLookups);
+function onEditKeydown(ev) {
+  if (ev.key === "Escape" && props.visible) close();
+}
+
+onMounted(() => {
+  ensureLookups();
+  window.addEventListener("keydown", onEditKeydown);
+});
+onBeforeUnmount(() => window.removeEventListener("keydown", onEditKeydown));
 
 watch(
   () => [props.visible, props.row, props.sheet?.name],

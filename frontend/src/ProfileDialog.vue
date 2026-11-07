@@ -1,5 +1,5 @@
 <template>
-  <div v-if="visible" class="backdrop" @mousedown.self="$emit('close')">
+  <div v-if="visible" class="backdrop">
     <form class="panel" @submit.prevent="save">
       <h3>个人资料</h3>
       <label>显示名称<input v-model.trim="form.full_name" maxlength="100" /></label>
