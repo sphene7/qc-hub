@@ -76,8 +76,8 @@
               <th class="num">合格批率</th>
               <th>判定</th>
               <th>不良属性</th>
+              <th>不良现象</th>
               <th>不良位置</th>
-              <th>现象</th>
               <th class="num">数量</th>
               <th>检验员</th>
               <th>登记人</th>
@@ -119,8 +119,8 @@
                   </span>
                 </td>
                 <td>{{ c.不良属性 || "-" }}</td>
-                <td>{{ c.不良位置 || "-" }}</td>
                 <td>{{ c.现象 || "-" }}</td>
+                <td>{{ c.不良位置 || "-" }}</td>
                 <td class="num">{{ c.数量 || "-" }}</td>
                 <td>{{ c.检验员 }}</td>
                 <td>{{ c.登记人 || "-" }}</td>
@@ -158,7 +158,7 @@
             class="smp-section smp-inspector-block"
           >
             <p class="smp-section-title">
-              <span>抽检与不良 · 检验员 {{ bi + 1 }}</span>
+              <span>抽检与不良 · 第 {{ bi + 1 }} 组</span>
               <span class="smp-block-actions">
                 <button
                   v-if="!modal.id && form.blocks.length > 1"
@@ -166,19 +166,50 @@
                   class="smp-link danger"
                   @click="removeBlock(bi)"
                 >
-                  删除此人
+                  删除本组
                 </button>
               </span>
             </p>
             <div class="smp-grid">
-              <label class="smp-field">
+              <div class="smp-field smp-inspector-field full">
                 <span>检验员<span class="smp-required">*</span></span>
-                <ComboField
-                  v-model="block.检验员"
-                  :options="options.检验员 || []"
-                  placeholder="姓名"
-                />
-              </label>
+                <div class="smp-inspector-list">
+                  <div
+                    v-for="(_name, ii) in block.inspectors"
+                    :key="ii"
+                    class="smp-inspector-pick"
+                  >
+                    <select v-model="block.inspectors[ii]">
+                      <option value="">— 选择检验员 —</option>
+                      <option
+                        v-for="o in inspectorOptionsFor(block.inspectors[ii], block, ii)"
+                        :key="o"
+                        :value="o"
+                      >
+                        {{ o }}
+                      </option>
+                    </select>
+                    <button
+                      v-if="ii === block.inspectors.length - 1"
+                      type="button"
+                      class="smp-plus-btn"
+                      title="本行再加一位检验员"
+                      @click="addInspector(bi)"
+                    >
+                      +
+                    </button>
+                    <button
+                      v-if="block.inspectors.length > 1"
+                      type="button"
+                      class="smp-link danger"
+                      title="移除这位检验员"
+                      @click="removeInspector(bi, ii)"
+                    >
+                      删
+                    </button>
+                  </div>
+                </div>
+              </div>
               <label class="smp-field">
                 <span>外观抽检数量</span>
                 <input v-model="block.外观抽检数量" type="number" min="0" step="any" />
@@ -190,7 +221,7 @@
             </div>
 
             <div class="smp-defect-head">
-              <span>不良明细（归属检验员：{{ block.检验员 || "未填" }}）</span>
+              <span>不良明细（归属检验员：{{ formatInspectors(block) || "未填" }}）</span>
               <button type="button" class="smp-link" @click="addDefect(bi)">+ 添加不良</button>
             </div>
             <p v-if="!block.defects.length" class="smp-hint">无不良可不填，判定为 OK</p>
@@ -203,12 +234,30 @@
                 </select>
               </label>
               <label class="smp-field">
-                <span>不良位置</span>
-                <ComboField v-model="d.不良位置" :options="options.不良位置 || []" placeholder="选择或输入" />
+                <span>不良现象</span>
+                <select v-model="d.现象" @change="onPhenomenonChange(d)">
+                  <option value="">— 选择大类 —</option>
+                  <option
+                    v-for="o in phenomenonOptionsFor(d.现象)"
+                    :key="o"
+                    :value="o"
+                  >
+                    {{ o }}
+                  </option>
+                </select>
               </label>
               <label class="smp-field">
-                <span>现象</span>
-                <ComboField v-model="d.现象" :options="options.现象 || []" placeholder="选择或输入" />
+                <span>不良位置</span>
+                <select v-model="d.不良位置" :disabled="!d.现象">
+                  <option value="">— 选择小类 —</option>
+                  <option
+                    v-for="o in locationOptionsFor(d.现象, d.不良位置)"
+                    :key="o"
+                    :value="o"
+                  >
+                    {{ o }}
+                  </option>
+                </select>
               </label>
               <label class="smp-field">
                 <span>数量</span>
@@ -233,7 +282,7 @@
             style="margin-bottom: 12px"
             @click="addBlock"
           >
-            + 添加检验员（另一人抽检）
+            + 添加一行抽检（另一组数量 / 不良）
           </button>
 
           <div v-if="modal.error" class="smp-modal-error">{{ modal.error }}</div>
@@ -252,7 +301,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import ComboField from "./ComboField.vue";
 import {
   addInspection,
   deleteInspection,
@@ -264,6 +312,28 @@ import {
   todayStr,
   updateInspection,
 } from "./samplingApi.js";
+
+/** 抽检登记检验员固定名单（不再沿用历史自由输入） */
+const INSPECTOR_OPTIONS = [
+  "张安粉",
+  "王小兰",
+  "周  旭",
+  "夏爱民",
+  "郭志文",
+  "唐光朗",
+  "冯永秀",
+  "李  赫",
+  "任宁宁",
+  "雷  璇",
+  "武佳佳",
+  "卢  雨",
+  "林金云",
+  "冯祖乐",
+  "黎薇",
+  "黄雨洁",
+  "周俊宏",
+  "肖复原",
+];
 
 const props = defineProps({
   workbookId: String,
@@ -284,6 +354,81 @@ const filters = ref({ keyword: "", from: "", to: "", mine: false, result: "" });
 const preset = ref("");
 const modal = ref({ open: false, id: "", error: "", version: null });
 const form = ref(blankForm());
+
+const defectLookups = computed(() => options.value?.lookups || {});
+/** 仅用类别管理代码表大类，避免混入历史「现象」脏值 */
+const defectCategories = computed(() => {
+  const fromLookup = defectLookups.value.defect_categories || [];
+  if (fromLookup.length) return uniqOptions(fromLookup);
+  return uniqOptions(options.value.不良现象大类 || []);
+});
+const minorsByCategory = computed(
+  () => defectLookups.value.defect_minors_by_category || {},
+);
+
+function uniqOptions(list) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of list || []) {
+    const s = String(raw ?? "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function withCurrentOption(list, current) {
+  const cur = String(current || "").trim();
+  if (!cur) return list;
+  if (list.includes(cur)) return list;
+  return [cur, ...list];
+}
+
+function inspectorOptionsFor(current, block = null, index = -1) {
+  const taken = new Set();
+  if (block?.inspectors) {
+    block.inspectors.forEach((name, i) => {
+      const n = String(name || "").trim();
+      if (n && i !== index) taken.add(n);
+    });
+  }
+  const base = INSPECTOR_OPTIONS.filter((o) => !taken.has(o));
+  return withCurrentOption(base, current);
+}
+
+function splitInspectorNames(value) {
+  return String(value || "")
+    .split(/[;；,，|｜/／\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function formatInspectors(block) {
+  return (block?.inspectors || []).map((s) => String(s || "").trim()).filter(Boolean).join("；");
+}
+
+function joinInspectors(block) {
+  return formatInspectors(block);
+}
+
+function phenomenonOptionsFor(current) {
+  return withCurrentOption(defectCategories.value, current);
+}
+
+function locationOptionsFor(category, current) {
+  const cat = String(category || "").trim();
+  const map = minorsByCategory.value;
+  let opts = [];
+  if (cat && Array.isArray(map[cat])) opts = map[cat];
+  else if (!cat && Array.isArray(map[""])) opts = map[""];
+  return withCurrentOption(uniqOptions(opts), current);
+}
+
+function onPhenomenonChange(d) {
+  const allowed = locationOptionsFor(d.现象, "");
+  if (d.不良位置 && !allowed.includes(d.不良位置)) d.不良位置 = "";
+}
 
 const resultOptions = [
   { key: "", label: "全部" },
@@ -360,7 +505,7 @@ const selectedSubmission = computed(
 );
 
 function emptyBlock() {
-  return { 外观抽检数量: "", 机能抽检数量: "", 检验员: "", defects: [] };
+  return { 外观抽检数量: "", 机能抽检数量: "", inspectors: [""], defects: [] };
 }
 
 function blankForm() {
@@ -420,13 +565,14 @@ function openFromQuery() {
 
 function openEdit(c) {
   if (!props.canInspect) return;
+  const names = splitInspectorNames(c.检验员);
   form.value = {
     sid: c.送检单号,
     blocks: [
       {
         外观抽检数量: c.外观抽检数量 ?? "",
         机能抽检数量: c.机能抽检数量 ?? "",
-        检验员: c.检验员 || "",
+        inspectors: names.length ? names : [""],
         defects: (c.不良组 || []).map((d) => ({ ...d })),
       },
     ],
@@ -451,6 +597,16 @@ function removeBlock(bi) {
   form.value.blocks.splice(bi, 1);
 }
 
+function addInspector(bi) {
+  form.value.blocks[bi].inspectors.push("");
+}
+
+function removeInspector(bi, ii) {
+  const list = form.value.blocks[bi].inspectors;
+  if (list.length <= 1) return;
+  list.splice(ii, 1);
+}
+
 function addDefect(bi) {
   form.value.blocks[bi].defects.push({ 不良属性: "", 不良位置: "", 现象: "", 数量: "" });
 }
@@ -459,39 +615,52 @@ function removeDefect(bi, i) {
   form.value.blocks[bi].defects.splice(i, 1);
 }
 
+function validateBlockInspectors(block, label = "本组") {
+  const names = (block.inspectors || []).map((s) => String(s || "").trim());
+  if (names.some((n) => !n)) throw new Error(`${label}：请选择检验员`);
+  if (new Set(names).size !== names.length) throw new Error(`${label}：检验员不能重复`);
+  return names;
+}
+
 async function save() {
   saving.value = true;
   modal.value.error = "";
   try {
     if (modal.value.id) {
       const block = form.value.blocks[0];
-      if (!String(block.检验员 || "").trim()) throw new Error("请填写检验员");
+      const names = validateBlockInspectors(block);
+      const joined = names.join("；");
       const payload = {
         外观抽检数量: block.外观抽检数量,
         机能抽检数量: block.机能抽检数量,
-        检验员: block.检验员,
+        检验员: joined,
         defects: block.defects,
       };
       if (modal.value.version != null) payload.expected_version = modal.value.version;
       const data = await updateInspection(props.workbookId, modal.value.id, payload);
       entries.value = data.entries || [];
-      flash(`已保存：${block.检验员} / ${form.value.sid}`);
+      flash(`已保存：${joined} / ${form.value.sid}`);
     } else {
       if (!form.value.sid) throw new Error("请选择送检单");
-      const names = form.value.blocks.map((b) => String(b.检验员 || "").trim());
-      if (names.some((n) => !n)) throw new Error("每位检验员都必须填写姓名");
-      if (new Set(names).size !== names.length) throw new Error("同一送检单下检验员姓名不能重复");
+      const allNames = [];
+      form.value.blocks.forEach((block, i) => {
+        const names = validateBlockInspectors(block, `第 ${i + 1} 组`);
+        allNames.push(...names);
+      });
+      if (new Set(allNames).size !== allNames.length) {
+        throw new Error("同一送检单下检验员不能重复");
+      }
       let data = null;
       for (const block of form.value.blocks) {
         data = await addInspection(props.workbookId, form.value.sid, {
           外观抽检数量: block.外观抽检数量,
           机能抽检数量: block.机能抽检数量,
-          检验员: block.检验员,
+          检验员: joinInspectors(block),
           defects: block.defects,
         });
       }
       entries.value = data?.entries || [];
-      flash(`已保存 ${form.value.blocks.length} 位检验员 / ${form.value.sid}`);
+      flash(`已保存 ${form.value.blocks.length} 组抽检 / ${form.value.sid}`);
     }
     closeModal();
   } catch (err) {
@@ -536,6 +705,40 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 .smp-block-actions {
   display: flex;
   gap: 8px;
+}
+.smp-inspector-field.full {
+  grid-column: 1 / -1;
+}
+.smp-inspector-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.smp-inspector-pick {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.smp-inspector-pick select {
+  flex: 1;
+  min-width: 0;
+  max-width: 280px;
+}
+.smp-plus-btn {
+  flex: 0 0 34px;
+  height: 34px;
+  border: 1px solid #c5cfc0;
+  border-radius: 8px;
+  background: #fff;
+  color: #3a6b28;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+.smp-plus-btn:hover {
+  background: #eef5e8;
+  border-color: #9bb88a;
 }
 .smp-defect-head {
   display: flex;

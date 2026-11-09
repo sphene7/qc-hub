@@ -145,8 +145,8 @@
               <div v-for="(d, i) in form.defects" :key="i" class="defect-item">
                 <span class="idx">{{ i + 1 }}</span>
                 <span class="attr">{{ d.不良属性 || '-' }}</span>
-                <span>{{ d.不良位置 || '-' }}</span>
                 <span>{{ d.现象 || '-' }}</span>
+                <span>{{ d.不良位置 || '-' }}</span>
                 <span class="qty">×{{ d.数量 ?? '-' }}</span>
               </div>
             </div>

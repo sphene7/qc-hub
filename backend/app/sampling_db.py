@@ -375,7 +375,8 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         .filter(SamplingSubmission.project_id == project.id)
         .all()
     )
-    phenomena = [d.phenomenon for d in defects]
+    # 抽检登记：不良现象=代码表「大类」；不良位置=该大类下「不良描述」
+    # 下拉只取类别管理代码表，不混入历史自由文本（否则大类会变成小类/旧现象）
     locations = [d.location for d in defects]
     sections_from_code: list[str] = []
     confirmers_from_code: list[str] = []
@@ -384,43 +385,55 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
     series_sections: dict[str, str] = {}
     series_confirmers: dict[str, str] = {}
     section_heads: dict[str, str] = {}
+    defect_categories: list[str] = []
+    defect_minors_by_category: dict[str, list[str]] = {}
 
-    # 历史数据 + 类别管理代码表（下拉/联动来源）
     frames = item.get("frames") or {}
     for name, df in frames.items():
         if df is None or getattr(df, "empty", True):
             continue
         sheet = str(name or "")
-        if "OQC" in sheet or "抽检批次" in sheet:
-            for col in ("不良位置", "现象"):
-                if col in df.columns:
-                    for value in df[col].tolist():
-                        if _text(value):
-                            if col == "不良位置":
-                                locations.append(value)
-                            else:
-                                phenomena.append(value)
         is_code_sheet = sheet.strip() == "代码" or (
-            "代码" in sheet and ("不良描述" in (df.columns if df is not None else []) or "课室" in (df.columns if df is not None else []))
+            "代码" in sheet
+            and (
+                "不良描述" in (df.columns if df is not None else [])
+                or "课室" in (df.columns if df is not None else [])
+            )
         )
-        if is_code_sheet:
-            from .code_table_oqc import build_oqc_lookups
+        if not is_code_sheet:
+            continue
+        from .code_table_oqc import (
+            build_oqc_lookups,
+            defect_category_options,
+            list_defects,
+        )
 
-            lookups = build_oqc_lookups(df)
-            series_sections = {**series_sections, **(lookups.get("series_sections") or {})}
-            series_confirmers = {**series_confirmers, **(lookups.get("series_confirmers") or {})}
-            section_heads = {**section_heads, **(lookups.get("section_heads") or {})}
-            sections_from_code.extend((lookups.get("series_sections") or {}).values())
-            sections_from_code.extend((lookups.get("section_heads") or {}).keys())
-            confirmers_from_code.extend((lookups.get("series_confirmers") or {}).values())
-            heads_from_code.extend((lookups.get("section_heads") or {}).values())
-            models_from_code.extend((lookups.get("series_sections") or {}).keys())
-            models_from_code.extend((lookups.get("series_confirmers") or {}).keys())
-            if "不良描述" in df.columns:
-                phenomena.extend(df["不良描述"].tolist())
+        lookups = build_oqc_lookups(df)
+        series_sections = {**series_sections, **(lookups.get("series_sections") or {})}
+        series_confirmers = {**series_confirmers, **(lookups.get("series_confirmers") or {})}
+        section_heads = {**section_heads, **(lookups.get("section_heads") or {})}
+        sections_from_code.extend((lookups.get("series_sections") or {}).values())
+        sections_from_code.extend((lookups.get("section_heads") or {}).keys())
+        confirmers_from_code.extend((lookups.get("series_confirmers") or {}).values())
+        heads_from_code.extend((lookups.get("section_heads") or {}).values())
+        models_from_code.extend((lookups.get("series_sections") or {}).keys())
+        models_from_code.extend((lookups.get("series_confirmers") or {}).keys())
+        defect_categories.extend(defect_category_options(df))
+        for item_d in list_defects(df):
+            cat = _text(item_d.get("category"))
+            desc = _text(item_d.get("desc"))
+            if not cat:
+                continue
+            if cat not in defect_categories:
+                defect_categories.append(cat)
+            if not desc:
+                continue
+            bucket = defect_minors_by_category.setdefault(cat, [])
+            if desc not in bucket:
+                bucket.append(desc)
+            locations.append(desc)
 
     locations = [part for value in locations for part in _split_parts(value)]
-    phenomena = [part for value in phenomena for part in _split_parts(value)]
 
     from .models import Department, ModelBusinessUnit
 
@@ -437,6 +450,12 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         if ("OQC" in sheet or "抽检批次" in sheet) and "送检类型" in df.columns:
             types_from_history.extend(df["送检类型"].tolist())
 
+    categories = uniq(defect_categories)
+    minors_by_cat = {
+        cat: uniq(defect_minors_by_category.get(cat, []))
+        for cat in categories
+    }
+
     return {
         "部番": uniq([s.part_no for s in subs] + models_from_code + part_numbers),
         "机种": uniq([s.model for s in subs] + models_from_code + part_numbers),
@@ -444,8 +463,11 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         "事业部": uniq([s.business_unit for s in subs] + bu_from_map),
         "送检类型": uniq(list(SUBMIT_TYPE_OPTIONS) + types_from_history),
         "检验员": uniq([c.inspector for c in inspections]),
-        "不良位置": uniq(locations),
-        "现象": uniq(phenomena),
+        "不良位置": uniq(
+            [m for minors in minors_by_cat.values() for m in minors] + locations
+        ),
+        "现象": categories,
+        "不良现象大类": categories,
         "不良属性": ["外观不良", "性能不良"],
         "确认者": uniq([s.confirmer for s in subs] + confirmers_from_code),
         "课室负责人": uniq([s.room_owner for s in subs] + heads_from_code),
@@ -455,6 +477,8 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
             "section_heads": section_heads,
             "part_numbers": uniq(part_numbers),
             "submit_types": list(SUBMIT_TYPE_OPTIONS),
+            "defect_categories": categories,
+            "defect_minors_by_category": minors_by_cat,
         },
     }
 
@@ -617,6 +641,14 @@ def _apply_inspection(defects: list[dict[str, Any]]) -> tuple[list[SamplingDefec
     return rows, total
 
 
+def _inspector_overlap(existing: str, incoming: str) -> str | None:
+    """若两边检验员名单有交集，返回冲突姓名。"""
+    left = set(_split_parts(existing))
+    right = set(_split_parts(incoming))
+    hit = sorted(left & right)
+    return hit[0] if hit else None
+
+
 def add_inspection(wid, item, sid, payload, user_id, db, user_label: str = "") -> dict[str, Any]:
     project = _project(db, wid)
     if project is None:
@@ -625,8 +657,15 @@ def add_inspection(wid, item, sid, payload, user_id, db, user_label: str = "") -
     inspector = _text(payload.get("检验员"))
     if not inspector:
         raise ValueError("请填写检验员")
-    if any(_text(c.inspector) == inspector for c in sub.inspections):
-        raise ValueError(f"检验员「{inspector}」已登记过这张送检单，请直接修改")
+    names = _split_parts(inspector)
+    if not names:
+        raise ValueError("请填写检验员")
+    if len(names) != len(set(names)):
+        raise ValueError("同一组内检验员不能重复")
+    for c in sub.inspections:
+        hit = _inspector_overlap(c.inspector, inspector)
+        if hit:
+            raise ValueError(f"检验员「{hit}」已登记过这张送检单，请直接修改")
 
     defects, total = _apply_inspection(payload.get("defects") or payload.get("不良组") or [])
     appearance = _int(payload.get("外观抽检数量")) or 0
@@ -673,9 +712,18 @@ def update_inspection(wid, item, iid, payload, user_id, db, user_label: str = ""
     inspector = _text(payload.get("检验员"))
     if not inspector:
         raise ValueError("请填写检验员")
+    names = _split_parts(inspector)
+    if not names:
+        raise ValueError("请填写检验员")
+    if len(names) != len(set(names)):
+        raise ValueError("同一组内检验员不能重复")
     sub = inspection.submission
-    if any(_text(c.inspector) == inspector and c.id != inspection.id for c in sub.inspections):
-        raise ValueError(f"检验员「{inspector}」已登记过这张送检单")
+    for c in sub.inspections:
+        if c.id == inspection.id:
+            continue
+        hit = _inspector_overlap(c.inspector, inspector)
+        if hit:
+            raise ValueError(f"检验员「{hit}」已登记过这张送检单")
 
     defects, total = _apply_inspection(payload.get("defects") or payload.get("不良组") or [])
     appearance = _int(payload.get("外观抽检数量")) or 0
