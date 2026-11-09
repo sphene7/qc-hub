@@ -37,6 +37,57 @@ export const OQC_STEP1_HIDE_KEYS = new Set([
   ...OQC_RETIRED_KEYS,
 ]);
 
+/** 列 key → 界面显示名（库内仍用原 key，避免破坏历史数据） */
+export const OQC_COLUMN_LABELS = {
+  时间段: "时间点",
+};
+
+export function oqcColumnLabel(key, fallback = "") {
+  const k = String(key || "").trim();
+  if (!k) return fallback || "";
+  return OQC_COLUMN_LABELS[k] || fallback || k;
+}
+
+/**
+ * 时间段 → 时间点：取区间第一个时刻。
+ * 例：8:00-12:00 → 8:00；20:01--以后 → 20:01；13:00 → 13:00
+ */
+export function firstTimePoint(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw || isJunkOption(raw)) return "";
+  const normalized = raw.replace(/：/g, ":");
+  const m = normalized.match(/(\d{1,2}:\d{2})/);
+  if (m) return m[1];
+  const parts = normalized.split(/\s*[-–—～~至到]+\s*/).map((p) => p.trim()).filter(Boolean);
+  return parts[0] || raw;
+}
+
+/** 转成 <input type="time"> 需要的 HH:MM */
+export function toTimeInputValue(value) {
+  const point = firstTimePoint(value);
+  if (!point) return "";
+  const m = point.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return "";
+  const hh = String(Math.min(23, Math.max(0, Number(m[1])))).padStart(2, "0");
+  const mm = String(Math.min(59, Math.max(0, Number(m[2])))).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+/** 从 time input 取值，统一存成 HH:MM */
+export function fromTimeInputValue(value) {
+  const s = String(value ?? "").trim();
+  if (!s) return "";
+  return toTimeInputValue(s);
+}
+
+/** 下拉候选里要丢掉的脏值（Excel 空单元格常变成字面量 nan） */
+export function isJunkOption(value) {
+  const s = String(value ?? "").trim();
+  if (!s) return true;
+  const lower = s.toLowerCase();
+  return lower === "nan" || lower === "none" || lower === "nat" || lower === "null" || s === "-" || s === "－";
+}
+
 export function getFormLookups(sheet, localLookups = {}) {
   const base = sheet?.form?.lookups || {};
   return {
@@ -44,6 +95,8 @@ export function getFormLookups(sheet, localLookups = {}) {
     series_confirmers: {},
     section_heads: {},
     defect_phenomena: {},
+    part_numbers: [],
+    submit_types: [],
     ...base,
     ...localLookups,
   };
@@ -80,44 +133,56 @@ export function oqcShowFlags(sheet) {
 }
 
 export function mergeFieldOptions(field, lookups, formValue) {
-  let opts = [...(field?.options || [])];
+  let opts = [...(field?.options || [])].filter((o) => !isJunkOption(o));
   const key = field?.key;
-  if (key === "机种" || key === "系列") {
+  if (key === "机种" || key === "系列" || key === "部番") {
     for (const k of Object.keys(lookups?.series_sections || {})) {
-      if (k && !opts.includes(k)) opts.push(k);
+      if (k && !isJunkOption(k) && !opts.includes(k)) opts.push(k);
+    }
+    for (const k of lookups?.part_numbers || []) {
+      const p = String(k || "").trim();
+      if (p && !isJunkOption(p) && !opts.includes(p)) opts.push(p);
     }
   }
   if (key === "现象") {
     for (const v of Object.values(lookups?.defect_phenomena || {})) {
       const d = String(v || "").trim();
-      if (d && !opts.includes(d)) opts.push(d);
+      if (d && !isJunkOption(d) && !opts.includes(d)) opts.push(d);
     }
   }
   if (key === "送检单位") {
     for (const v of Object.values(lookups?.series_sections || {})) {
-      if (v && !opts.includes(v)) opts.push(v);
+      if (v && !isJunkOption(v) && !opts.includes(v)) opts.push(v);
+    }
+  }
+  if (key === "送检类型") {
+    for (const t of lookups?.submit_types || []) {
+      const s = String(t || "").trim();
+      if (s && !isJunkOption(s) && !opts.includes(s)) opts.push(s);
     }
   }
   const cur = formValue == null ? "" : String(formValue).trim();
-  if (cur && !opts.includes(cur)) opts.unshift(cur);
+  if (cur && !isJunkOption(cur) && !opts.includes(cur)) opts.unshift(cur);
   return opts;
 }
 
 export function pickerOptions(map, current = "") {
-  const opts = Object.keys(map || {}).filter(Boolean);
+  const opts = Object.keys(map || {}).filter((k) => !isJunkOption(k));
   const cur = String(current || "").trim();
-  if (cur && !opts.includes(cur)) opts.unshift(cur);
+  if (cur && !isJunkOption(cur) && !opts.includes(cur)) opts.unshift(cur);
   return opts.sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
 
 export function buildSectionPickerOptions(lookups, current = "") {
-  const sections = new Set(Object.values(lookups?.series_sections || {}).filter(Boolean));
+  const sections = new Set(
+    Object.values(lookups?.series_sections || {}).filter((v) => !isJunkOption(v)),
+  );
   for (const k of Object.keys(lookups?.section_heads || {})) {
-    if (k) sections.add(k);
+    if (!isJunkOption(k)) sections.add(k);
   }
   const opts = [...sections];
   const cur = String(current || "").trim();
-  if (cur && !opts.includes(cur)) opts.unshift(cur);
+  if (cur && !isJunkOption(cur) && !opts.includes(cur)) opts.unshift(cur);
   return opts.sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
 
@@ -125,10 +190,10 @@ export function buildConfirmerPickerOptions(lookups, current = "") {
   const owners = new Set(
     Object.values(lookups?.series_confirmers || {})
       .map((v) => String(v || "").trim())
-      .filter(Boolean),
+      .filter((v) => !isJunkOption(v)),
   );
   const cur = String(current || "").trim();
-  if (cur) owners.add(cur);
+  if (cur && !isJunkOption(cur)) owners.add(cur);
   return [...owners].sort((a, b) => a.localeCompare(b, "zh-CN"));
 }
 
@@ -136,9 +201,19 @@ export function resolveConfirmerForModel(model, lookups) {
   const key = String(model || "").trim();
   if (!key) return "";
   const map = lookups?.series_confirmers || {};
-  if (map[key] != null && String(map[key]).trim()) return String(map[key]).trim();
+  const pick = (v) => {
+    const s = v == null ? "" : String(v).trim();
+    return isJunkOption(s) ? "" : s;
+  };
+  if (map[key] != null) {
+    const hit = pick(map[key]);
+    if (hit) return hit;
+  }
   for (const [k, v] of Object.entries(map)) {
-    if (String(k).trim() === key && v != null && String(v).trim()) return String(v).trim();
+    if (String(k).trim() === key) {
+      const hit = pick(v);
+      if (hit) return hit;
+    }
   }
   return "";
 }

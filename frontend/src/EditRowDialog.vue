@@ -9,7 +9,7 @@
       <form class="dialog-body" @submit.prevent="save">
         <template v-for="(block, bi) in formBlocks" :key="bi">
           <label v-if="block.type === 'field'" :class="['field', block.field.widget]">
-            <span>{{ block.field.label }}<i v-if="block.field.required">*</i></span>
+            <span>{{ oqcColumnLabel(block.field.key, block.field.label) }}<i v-if="block.field.required">*</i></span>
             <DateField
               v-if="block.field.widget === 'date'"
               v-model="form[block.field.key]"
@@ -20,11 +20,18 @@
               v-model="form[block.field.key]"
               @change="preview"
             />
+            <input
+              v-else-if="block.field.key === '时间段'"
+              type="time"
+              :value="toTimeInputValue(form[block.field.key])"
+              @input="onFieldChange(block.field.key, $event.target.value)"
+              @change="preview"
+            />
             <ComboField
               v-else-if="block.field.widget === 'select' && block.field.allow_custom !== false"
               v-model="form[block.field.key]"
               :options="comboOptions(block.field)"
-              :placeholder="'选择或输入' + block.field.label"
+              :placeholder="'选择或输入' + oqcColumnLabel(block.field.key, block.field.label)"
               @update:model-value="(v) => onFieldChange(block.field.key, v)"
               @change="(v) => onFieldChange(block.field.key, v)"
             />
@@ -142,9 +149,11 @@ import {
   buildConfirmerPickerOptions,
   DEFECT_GROUP_KEYS,
   emptyDefectGroup,
+  fromTimeInputValue,
   getFormLookups,
   mergeFieldOptions,
   OQC_STEP1_HIDE_KEYS,
+  oqcColumnLabel,
   oqcShowFlags,
   onOqcModelChange,
   onOqcSectionChange,
@@ -152,6 +161,7 @@ import {
   pickerOptions,
   serializeDefectGroups,
   syncOqcPickersFromRow,
+  toTimeInputValue,
   validateOqcDefectValues,
 } from "./oqcForm.js";
 
@@ -265,7 +275,8 @@ async function ensureLookups() {
   if (!props.workbookId) return;
   if (!oqcFlags.value.modelKey && !oqcFlags.value.defectGroups) return;
   if (Object.keys(activeLookups.value.series_sections || {}).length &&
-      Object.keys(activeLookups.value.defect_phenomena || {}).length) return;
+      Object.keys(activeLookups.value.defect_phenomena || {}).length &&
+      (activeLookups.value.part_numbers || []).length) return;
   try {
     const res = await authFetch(
       `/api/workbooks/${props.workbookId}/code-classifications?code_sheet=代码`
@@ -274,10 +285,30 @@ async function ensureLookups() {
     if (res.ok && data.layout === "oqc") {
       const lk = data.lookups || data;
       localLookups.value = {
+        ...localLookups.value,
         series_sections: lk.series_sections || {},
         series_confirmers: lk.series_confirmers || {},
         section_heads: lk.section_heads || {},
         defect_phenomena: lk.defect_phenomena || {},
+      };
+    }
+    const buRes = await authFetch(
+      `/api/workbooks/${props.workbookId}/sampling/model-bu?page=1&page_size=500`,
+    );
+    const buData = await buRes.json();
+    if (buRes.ok) {
+      const parts = (buData.items || []).map((r) => String(r.model || "").trim()).filter(Boolean);
+      localLookups.value = {
+        ...localLookups.value,
+        part_numbers: [...new Set([...(localLookups.value.part_numbers || []), ...parts])],
+        submit_types: [
+          "正常送检",
+          "样品送检",
+          "在制返工",
+          "库存返工",
+          "加急送检",
+          "复检",
+        ],
       };
     }
   } catch (err) {
@@ -308,6 +339,8 @@ watch(
         form[f.key] = toDateInputValue(v);
       } else if (isMonthField(f)) {
         form[f.key] = toMonthInputValue(v, monthFallbackYear(props.row));
+      } else if (f.key === "时间段") {
+        form[f.key] = v == null ? "" : fromTimeInputValue(v);
       } else {
         form[f.key] = v == null ? "" : String(v);
       }
@@ -333,7 +366,13 @@ watch(
 );
 
 function comboOptions(field) {
-  if (field.key === "机种" || field.key === "系列" || field.key === "现象") {
+  if (
+    field.key === "机种" ||
+    field.key === "系列" ||
+    field.key === "部番" ||
+    field.key === "现象" ||
+    field.key === "送检类型"
+  ) {
     return mergeFieldOptions(field, activeLookups.value, form[field.key]);
   }
   let opts = [...(field.options || [])];
@@ -341,7 +380,10 @@ function comboOptions(field) {
   if (cur && String(cur).trim() && !opts.includes(String(cur).trim())) {
     opts.unshift(String(cur).trim());
   }
-  return opts;
+  return opts.filter((o) => {
+    const s = String(o ?? "").trim().toLowerCase();
+    return s && s !== "nan" && s !== "none" && s !== "null";
+  });
 }
 
 function onSectionPickerChange(section) {
@@ -365,7 +407,7 @@ function onDateFieldChange(dateStr) {
 }
 
 function onFieldChange(key, value) {
-  form[key] = value;
+  form[key] = key === "时间段" ? fromTimeInputValue(value) : value;
   if (key === "日期") syncMonthFromDate(value);
   if (key === "系列" || key === "机种") {
     const pickers = {
@@ -396,6 +438,10 @@ function payload() {
     const v = form[f.key];
     if (isMonthField(f)) {
       values[f.key] = v === "" || v === undefined ? null : fromMonthInputValue(v);
+      continue;
+    }
+    if (f.key === "时间段") {
+      values[f.key] = v === "" || v === undefined ? null : fromTimeInputValue(v) || null;
       continue;
     }
     values[f.key] = v === "" || v === undefined ? null : v;
@@ -432,7 +478,7 @@ async function save() {
   for (const f of editableFields.value) {
     if (f.required && (form[f.key] === undefined || form[f.key] === "" || form[f.key] == null)) {
       ok.value = false;
-      message.value = `请填写 ${f.label}`;
+      message.value = `请填写 ${oqcColumnLabel(f.key, f.label)}`;
       return;
     }
   }

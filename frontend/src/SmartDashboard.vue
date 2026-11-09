@@ -116,13 +116,13 @@
                     <button type="button" class="link-btn" @click="showAllColumns">全部显示</button>
                   </div>
                   <div class="column-picker-list">
-                    <label v-for="col in allDisplayColumns" :key="'colpick-' + col" class="column-picker-item">
+                    <label v-for="col in allDisplayColumns" :key="'colpick-' + col" class="column-picker-item" :title="col">
                       <input
                         type="checkbox"
                         :checked="!hiddenColumns.includes(col)"
                         @change="toggleColumnVisibility(col)"
                       />
-                      <span>{{ col }}</span>
+                      <span>{{ oqcColumnLabel(col) }}</span>
                     </label>
                   </div>
                 </div>
@@ -231,7 +231,7 @@
               <th v-if="hasActions">操作</th>
               <th v-for="col in displayColumns" :key="col">
                 <div class="th-inner">
-                  <span class="col-label">{{ col }}</span>
+                  <span class="col-label">{{ oqcColumnLabel(col) }}</span>
                   <span class="col-sort-arrows">
                     <button
                       type="button"
@@ -371,6 +371,7 @@ import EntryForm from './EntryForm.vue';
 import EditRowDialog from './EditRowDialog.vue';
 import DateField from './DateField.vue';
 import { formatMonthDisplay } from './monthField.js';
+import { firstTimePoint, oqcColumnLabel } from './oqcForm.js';
 
 const props = defineProps({
   workbookId: String,
@@ -564,7 +565,7 @@ const filterBarItems = computed(() => {
       }
       continue;
     }
-    items.push({ kind: 'column', key: col, label: col });
+    items.push({ kind: 'column', key: col, label: oqcColumnLabel(col) });
   }
   return items;
 });
@@ -1335,6 +1336,9 @@ function formatCellRaw(value, col = '') {
   if (value == null || value === '') return '-';
   if (col === '月份' || /^\d{1,2}月$/.test(String(value).trim())) {
     return formatMonthDisplay(value);
+  }
+  if (col === '时间段') {
+    return firstTimePoint(value) || '-';
   }
   const dateOnly = formatDateOnly(value);
   if (dateOnly && /^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {

@@ -8,6 +8,7 @@ backend/data/
 .DS_Store
 *.log
 backend/logs/
+.run/
 deploy/data/bundle.json
 product.modules.json
 .env

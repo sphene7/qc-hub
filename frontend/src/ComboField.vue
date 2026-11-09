@@ -43,7 +43,10 @@ const highlight = ref(0);
 
 const filtered = computed(() => {
   const q = String(props.modelValue || "").trim().toLowerCase();
-  const opts = props.options || [];
+  const opts = (props.options || []).filter((o) => {
+    const s = String(o ?? "").trim().toLowerCase();
+    return s && s !== "nan" && s !== "none" && s !== "nat" && s !== "null";
+  });
   if (!q) return opts;
   return opts.filter((o) => String(o).toLowerCase().includes(q));
 });

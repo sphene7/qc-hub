@@ -89,8 +89,12 @@ def _pair_lookup(code_df: pd.DataFrame, left: str, right: str) -> dict[str, str]
     if code_df is None or code_df.empty:
         return out
     for _, row in code_df.iterrows():
-        a = str(row.get(left) or "").strip()
-        b = str(row.get(right) or "").strip()
+        left_val = row.get(left)
+        right_val = row.get(right)
+        if _is_blank(left_val) or _is_blank(right_val):
+            continue
+        a = str(left_val).strip()
+        b = str(right_val).strip()
         if a and b:
             out[a] = b
     return out

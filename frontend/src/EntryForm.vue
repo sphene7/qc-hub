@@ -74,7 +74,7 @@
         />
         <label v-else :class="['field', block.field.widget]">
           <span>
-            {{ block.field.label }}
+            {{ oqcColumnLabel(block.field.key, block.field.label) }}
             <i v-if="block.field.required">*</i>
           </span>
           <DateField
@@ -85,6 +85,13 @@
           <MonthField
             v-else-if="isMonthField(block.field)"
             v-model="form[block.field.key]"
+            @change="preview"
+          />
+          <input
+            v-else-if="block.field.key === '时间段'"
+            type="time"
+            :value="toTimeInputValue(form[block.field.key])"
+            @input="onFieldChange(block.field.key, $event.target.value)"
             @change="preview"
           />
           <template v-else-if="block.field.widget === 'select' && block.field.allow_custom !== false">
@@ -170,14 +177,17 @@ import {
   applyOqcPickersToValues,
   DEFECT_GROUP_KEYS,
   emptyDefectGroup,
+  fromTimeInputValue,
   mergeFieldOptions,
   OQC_STEP1_HIDE_KEYS,
+  oqcColumnLabel,
   oqcShowFlags,
   onOqcModelChange,
   onOqcSectionChange,
   buildSectionPickerOptions,
   buildConfirmerPickerOptions,
   serializeDefectGroups,
+  toTimeInputValue,
   validateOqcDefectValues,
 } from "./oqcForm.js";
 
@@ -217,6 +227,8 @@ const localLookups = ref({
   series_confirmers: {},
   section_heads: {},
   defect_phenomena: {},
+  part_numbers: [],
+  submit_types: [],
 });
 const lookupsLoading = ref(false);
 
@@ -282,6 +294,12 @@ const activeLookups = computed(() => {
     series_confirmers: { ...(fromLocal.series_confirmers || {}), ...(fromForm.series_confirmers || {}) },
     section_heads: { ...(fromLocal.section_heads || {}), ...(fromForm.section_heads || {}) },
     defect_phenomena: { ...(fromLocal.defect_phenomena || {}), ...(fromForm.defect_phenomena || {}) },
+    part_numbers: [
+      ...new Set([...(fromForm.part_numbers || []), ...(fromLocal.part_numbers || [])]),
+    ],
+    submit_types: [
+      ...new Set([...(fromForm.submit_types || []), ...(fromLocal.submit_types || [])]),
+    ],
   };
 });
 const seriesSections = computed(() => activeLookups.value.series_sections || {});
@@ -295,7 +313,12 @@ const confirmerPickerOptions = computed(() =>
 const headPickerOptions = computed(() => {
   const set = new Set(Object.values(sectionHeads.value));
   if (headPicker.value) set.add(String(headPicker.value).trim());
-  return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  return [...set]
+    .filter((v) => {
+      const s = String(v ?? "").trim().toLowerCase();
+      return s && s !== "nan" && s !== "none" && s !== "null";
+    })
+    .sort((a, b) => a.localeCompare(b, "zh-CN"));
 });
 const locationOptions = computed(() => {
   const field = fields.value.find((f) => f.key === "不良位置");
@@ -443,6 +466,30 @@ async function ensureLookups() {
         };
       }
     }
+    // 部番对照表：机种/部番输入时自动补全
+    try {
+      const buRes = await authFetch(
+        `/api/workbooks/${props.workbookId}/sampling/model-bu?page=1&page_size=500`,
+      );
+      const buData = await buRes.json();
+      if (buRes.ok) {
+        const parts = (buData.items || []).map((r) => String(r.model || "").trim()).filter(Boolean);
+        localLookups.value = {
+          ...localLookups.value,
+          part_numbers: [...new Set([...(localLookups.value.part_numbers || []), ...parts])],
+          submit_types: [
+            "正常送检",
+            "样品送检",
+            "在制返工",
+            "库存返工",
+            "加急送检",
+            "复检",
+          ],
+        };
+      }
+    } catch (buErr) {
+      console.warn("[EntryForm] load model-bu failed", buErr);
+    }
   } catch (err) {
     console.warn("[EntryForm] load code lookups failed", err);
   } finally {
@@ -562,21 +609,31 @@ function comboOptions(field) {
       opts = opts.filter((o) => classificationFilter.value.includes(o));
     }
   }
-  if (field.key === "机种" || field.key === "系列" || field.key === "现象") {
+  if (
+    field.key === "机种" ||
+    field.key === "系列" ||
+    field.key === "部番" ||
+    field.key === "现象" ||
+    field.key === "送检类型"
+  ) {
     return mergeFieldOptions(field, activeLookups.value, form[field.key]);
   }
   const cur = form[field.key];
   if (cur && String(cur).trim() && !opts.includes(cur)) {
     opts.unshift(String(cur).trim());
   }
-  return opts;
+  // 过滤 Excel 脏值 nan
+  return opts.filter((o) => {
+    const s = String(o ?? "").trim().toLowerCase();
+    return s && s !== "nan" && s !== "none" && s !== "null";
+  });
 }
 
 function modulePlaceholder(field) {
   if (field.key === "分类" && classificationFilter.value?.length > 1) {
     return "该类别对应多个分类，请选择";
   }
-  if (field.key !== "模块") return `选择或输入${field.label}`;
+  if (field.key !== "模块") return `选择或输入${oqcColumnLabel(field.key, field.label)}`;
   if (moduleFilter.value?.length > 1) return "该负责人对应多个模块，请选择";
   return "选择或输入模块";
 }
@@ -648,7 +705,7 @@ function onDateFieldChange(dateStr) {
 }
 
 function onFieldChange(key, value) {
-  form[key] = value;
+  form[key] = key === "时间段" ? fromTimeInputValue(value) : value;
   if (key === "日期") syncMonthFromDate(value);
   if (key === "模块") {
     const owner = moduleOwners.value[String(value || "").trim()];
@@ -688,6 +745,10 @@ function payload() {
     }
     if (isMonthField(f)) {
       values[f.key] = v === "" || v === undefined ? null : fromMonthInputValue(v);
+      continue;
+    }
+    if (f.key === "时间段") {
+      values[f.key] = v === "" || v === undefined ? null : fromTimeInputValue(v) || null;
       continue;
     }
     values[f.key] = v === "" || v === undefined ? null : v;
@@ -741,7 +802,7 @@ async function submit() {
   for (const f of visibleFields.value) {
     if (f.required && (form[f.key] === undefined || form[f.key] === "" || form[f.key] == null)) {
       ok.value = false;
-      message.value = `请填写 ${f.label}`;
+      message.value = `请填写 ${oqcColumnLabel(f.key, f.label)}`;
       return;
     }
   }

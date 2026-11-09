@@ -80,7 +80,7 @@
               :style="{ width: colWidth(col) + 'px' }"
             >
               <div class="th-inner">
-                <span class="th-label">{{ col }}</span>
+                <span class="th-label">{{ oqcColumnLabel(col) }}</span>
                 <span class="col-sort-arrows">
                   <button type="button" class="col-sort-btn" :class="{ active: sortField === col && sortDirection === 'asc' }" @click="setSort(col, 'asc')">▲</button>
                   <button type="button" class="col-sort-btn" :class="{ active: sortField === col && sortDirection === 'desc' }" @click="setSort(col, 'desc')">▼</button>
@@ -108,7 +108,7 @@
               />
             </td>
             <td class="sticky-col sticky-col-date">{{ formatSamplingDateLabel(row[rowKey]) }}</td>
-            <td v-for="col in visibleColumns" :key="col">{{ formatCell(row[col]) }}</td>
+            <td v-for="col in visibleColumns" :key="col">{{ formatCell(row[col], col) }}</td>
             <td v-if="canUpdate || canDelete" class="actions-col">
               <button v-if="canUpdate" type="button" class="icon-btn" title="编辑" @click="openEdit(row)">✏️</button>
               <button v-if="canDelete" type="button" class="icon-btn" title="删除" @click="confirmDelete(row)">🗑️</button>
@@ -185,6 +185,7 @@ import {
   resolveEditorDate,
   todayIso,
 } from "./dateUtil.js";
+import { firstTimePoint, oqcColumnLabel } from "./oqcForm.js";
 
 const props = defineProps({
   workbookId: String,
@@ -442,9 +443,10 @@ function clearRowSelection() {
   selectedRows.value = new Map();
 }
 
-function formatCell(v) {
+function formatCell(v, col = "") {
   if (v == null || v === "") return "";
   if (v === "－" || v === "-") return "－";
+  if (col === "时间段") return firstTimePoint(v) || "";
   return String(v);
 }
 

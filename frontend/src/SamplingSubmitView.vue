@@ -360,7 +360,7 @@ function rememberDept(value) {
 function blankForm() {
   return {
     日期: nowLocalStr(),
-    送检类型: "正常送检",
+    送检类型: "",
     部番: "",
     机种: "",
     事业部: "",

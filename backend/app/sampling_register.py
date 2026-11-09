@@ -400,7 +400,10 @@ def options(item: dict[str, Any]) -> dict[str, list[str]]:
     return {
         "机种": uniq(column(oqc_records, "机种") + column(code_records, "机种") + column(code_records, "机种_2")),
         "送检单位": uniq(column(oqc_records, "送检单位") + column(code_records, "课室") + column(code_records, "课室_2")),
-        "送检类型": uniq(column(oqc_records, "送检类型") + ["正常送检", "试做送检"]),
+        "送检类型": uniq(
+            column(oqc_records, "送检类型")
+            + ["正常送检", "样品送检", "在制返工", "库存返工", "加急送检", "复检"]
+        ),
         "检验员": uniq(column(insp_records, "检验员") + column(oqc_records, "检验员")),
         "不良位置": uniq(locations + column(oqc_records, "不良位置")),
         "现象": uniq(phenomena + column(code_records, "不良描述") + column(oqc_records, "现象")),

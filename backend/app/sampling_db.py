@@ -100,7 +100,25 @@ def _project(db: Session, wid: str) -> Project | None:
 def _text(value: Any) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
-    return str(value).strip()
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "nat", "null"}:
+        return ""
+    return text
+
+# 与抽检明细「送检类型」下拉保持一致
+SUBMIT_TYPE_OPTIONS = (
+    "正常送检",
+    "样品送检",
+    "在制返工",
+    "库存返工",
+    "加急送检",
+    "复检",
+)
 
 
 def _num(value: Any) -> float | None:
@@ -404,16 +422,27 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
     locations = [part for value in locations for part in _split_parts(value)]
     phenomena = [part for value in phenomena for part in _split_parts(value)]
 
-    from .models import Department
+    from .models import Department, ModelBusinessUnit
 
     departments = [d.name for d in db.query(Department).filter(Department.active.is_(True)).all()]
+    model_bu_rows = db.query(ModelBusinessUnit).order_by(ModelBusinessUnit.model).all()
+    part_numbers = [m.model for m in model_bu_rows]
+    bu_from_map = [m.business_unit for m in model_bu_rows]
+    # 历史 OQC 宽表里的送检类型，合并进标准枚举
+    types_from_history: list[str] = []
+    for name, df in frames.items():
+        if df is None or getattr(df, "empty", True):
+            continue
+        sheet = str(name or "")
+        if ("OQC" in sheet or "抽检批次" in sheet) and "送检类型" in df.columns:
+            types_from_history.extend(df["送检类型"].tolist())
 
     return {
-        "部番": uniq([s.part_no for s in subs] + models_from_code),
-        "机种": uniq([s.model for s in subs] + models_from_code),
+        "部番": uniq([s.part_no for s in subs] + models_from_code + part_numbers),
+        "机种": uniq([s.model for s in subs] + models_from_code + part_numbers),
         "送检单位": uniq([s.department for s in subs] + departments + sections_from_code),
-        "事业部": uniq([s.business_unit for s in subs]),
-        "送检类型": ["正常送检", "试做送检"],
+        "事业部": uniq([s.business_unit for s in subs] + bu_from_map),
+        "送检类型": uniq(list(SUBMIT_TYPE_OPTIONS) + types_from_history),
         "检验员": uniq([c.inspector for c in inspections]),
         "不良位置": uniq(locations),
         "现象": uniq(phenomena),
@@ -424,6 +453,8 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
             "series_sections": series_sections,
             "series_confirmers": series_confirmers,
             "section_heads": section_heads,
+            "part_numbers": uniq(part_numbers),
+            "submit_types": list(SUBMIT_TYPE_OPTIONS),
         },
     }
 
