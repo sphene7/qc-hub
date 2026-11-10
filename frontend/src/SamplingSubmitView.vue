@@ -68,6 +68,7 @@
               <th>送检单号</th>
               <th>日期</th>
               <th>部番</th>
+              <th>送检类型</th>
               <th>机种</th>
               <th>事业部</th>
               <th>送检单位</th>
@@ -79,9 +80,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="12"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="13"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="12">
+              <td colspan="13">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">📋</span>
                   没有符合条件的送检单
@@ -108,6 +109,7 @@
                 <td class="mono">{{ e.送检单号 }}</td>
                 <td>{{ e.日期 }}</td>
                 <td class="mono">{{ e.部番 || e.机种 || "-" }}</td>
+                <td>{{ e.送检类型 || "-" }}</td>
                 <td>{{ e.机种 || "-" }}</td>
                 <td><span v-if="e.事业部" class="bu-tag">{{ e.事业部 }}</span><span v-else>-</span></td>
                 <td>{{ e.送检单位 || "-" }}</td>

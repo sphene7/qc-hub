@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 import traceback
 from pathlib import Path
 from typing import Any, Optional
@@ -73,6 +74,7 @@ from .auth import (
 )
 from .models import User, Project, ProjectMember, Department, SheetData, Role, ModelBusinessUnit
 from .logutil import log, LOG_FILE
+from .supervise import note_blocking, start_supervisor
 from .sheet_util import resolve_sheet_name, sheet_row_stats
 from .abnormal_monitor import build_module_monitor
 from .config import (
@@ -99,6 +101,7 @@ def startup_event():
     info = get_system_info()
     log(f"Excel-to-Web started — mode={info['mode']} name={info['system_name']}")
     log(f"日志文件: {LOG_FILE}")
+    start_supervisor()
 
 
 def _require_upload_allowed(current_user: User) -> None:
@@ -112,13 +115,18 @@ def _require_upload_allowed(current_user: User) -> None:
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     log(f">>> {request.method} {request.url.path}")
+    started = time.perf_counter()
     try:
         response = await call_next(request)
-        log(f"<<< {request.method} {request.url.path} -> {response.status_code}")
-        return response
     except Exception as exc:
-        log(f"!!! {request.method} {request.url.path} ERROR: {exc}")
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        log(f"!!! {request.method} {request.url.path} ERROR: {exc} {elapsed_ms:.0f}ms")
+        note_blocking(request.method, request.url.path, elapsed_ms, "ERROR")
         raise
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    log(f"<<< {request.method} {request.url.path} -> {response.status_code} {elapsed_ms:.0f}ms")
+    note_blocking(request.method, request.url.path, elapsed_ms, str(response.status_code))
+    return response
 
 app.add_middleware(
     CORSMiddleware,

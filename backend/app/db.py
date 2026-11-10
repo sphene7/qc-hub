@@ -119,6 +119,12 @@ def _migrate_schema(engine):
             conn.commit()
             print("Added sampling_submissions.business_unit column.")
 
+        result = conn.execute(text("SHOW COLUMNS FROM sampling_submissions LIKE 'submit_type'"))
+        if not result.fetchone():
+            conn.execute(text("ALTER TABLE sampling_submissions ADD COLUMN submit_type VARCHAR(50) NULL"))
+            conn.commit()
+            print("Added sampling_submissions.submit_type column.")
+
         result = conn.execute(text("SHOW COLUMNS FROM departments LIKE 'parent_id'"))
         if not result.fetchone():
             conn.execute(text("ALTER TABLE departments ADD COLUMN parent_id INT NULL, ADD INDEX ix_departments_parent_id (parent_id)"))

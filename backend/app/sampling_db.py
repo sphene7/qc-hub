@@ -278,6 +278,7 @@ def _submission_dict(s: SamplingSubmission) -> dict[str, Any]:
         "送检单号": s.code,
         "日期": _iso(s.submit_date),
         "月份": s.month_label or _month_label(s.submit_date),
+        "送检类型": s.submit_type or "",
         "部番": s.part_no or s.model or "",
         "机种": s.model or "",
         "系列": s.series or "",
@@ -538,6 +539,7 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "", dep
         series=_text(payload.get("系列")) or model,
         department=department,
         business_unit=_text(payload.get("事业部")) or resolve_business_unit(db, part_no),
+        submit_type=_text(payload.get("送检类型")) or "正常送检",
         qty=qty,
         batch_seq=_int(payload.get("同批送检次数")),
         urgent=_text(payload.get("是否紧急出货")),
@@ -595,6 +597,7 @@ def update_submission(wid, item, sid, payload, user_id, db, user_label: str = ""
         record.business_unit = perms_bu
     elif not _text(record.business_unit) or _text(record.part_no) != part_no:
         record.business_unit = resolve_business_unit(db, part_no)
+    record.submit_type = _text(payload.get("送检类型")) or record.submit_type or "正常送检"
     record.qty = _int(payload.get("送检数量"))
     record.batch_seq = _int(payload.get("同批送检次数"))
     record.urgent = _text(payload.get("是否紧急出货"))
@@ -879,7 +882,7 @@ def _sync_oqc(db: Session, item: dict[str, Any], project: Project, sub: Sampling
         values = {
             "日期": sub.submit_date.strftime("%Y-%m-%d") if isinstance(sub.submit_date, datetime) else sub.submit_date,
             "月份": sub.month_label,
-            "送检类型": "正常送检",
+            "送检类型": _text(sub.submit_type) or "正常送检",
             "机种": sub.part_no or sub.model,
             "送检数量": sub.qty,
             "外观抽检数量": insp.appearance_qty,

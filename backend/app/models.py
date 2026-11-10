@@ -119,6 +119,7 @@ class SamplingSubmission(Base):
     series = Column(String(50), nullable=True)
     department = Column(String(100), nullable=True, index=True)
     business_unit = Column(String(50), nullable=True, index=True)  # 事业部（部番对照）
+    submit_type = Column(String(50), nullable=True)  # 送检类型：正常送检 / 返工送检 …
     qty = Column(Integer, nullable=True)
     batch_seq = Column(Integer, nullable=True)
     urgent = Column(String(10), nullable=True)
