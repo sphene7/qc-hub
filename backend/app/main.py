@@ -53,7 +53,7 @@ from .semantics import (
     compute_kpis,
     page_rows,
 )
-from .db import init_database, get_db
+from .db import init_database, get_db, release_db
 from .auth import (
     PROJECT_PERMISSION_KEYS,
     authenticate_user,
@@ -70,6 +70,7 @@ from .auth import (
     hash_password,
     get_project_access,
     list_all_project_permissions,
+    project_list_access,
     set_user_project_permissions,
 )
 from .models import User, Project, ProjectMember, Department, SheetData, Role, ModelBusinessUnit
@@ -897,14 +898,18 @@ def _department_children(db: Session, dept_id: int) -> list[Department]:
 
 
 def _department_descendants(db: Session, dept_id: int) -> set[int]:
+    rows = db.query(Department.id, Department.parent_id).all()
+    children: dict[int | None, list[int]] = {}
+    for child_id, parent_id in rows:
+        children.setdefault(parent_id, []).append(child_id)
     result: set[int] = set()
-    stack = [dept_id]
+    stack = list(children.get(dept_id, []))
     while stack:
         current = stack.pop()
-        for child in _department_children(db, current):
-            if child.id not in result:
-                result.add(child.id)
-                stack.append(child.id)
+        if current in result:
+            continue
+        result.add(current)
+        stack.extend(children.get(current, []))
     return result
 
 
@@ -1464,10 +1469,11 @@ def delete_model_bu(item_id: int, current_user: User = Depends(get_current_user)
 def list_projects(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """List all projects accessible to current user."""
     projects = get_user_projects(db, current_user.id)
-    
+    access_map = project_list_access(db, current_user, projects)
+
     result = []
     for p in projects:
-        access = get_project_access(db, p.project_id, current_user.id)
+        access = access_map.get(p.id)
         user_role = access["role"] if access else None
         permissions = access["permissions"] if access else None
         can_manage = bool(access and access.get("can_manage_members"))
@@ -1706,7 +1712,7 @@ def query_workbook(wid: str, body: QueryBody,
     if not check_project_permission(db, wid, current_user.id, 'read'):
         raise HTTPException(403, "无权限")
     
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, body.sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     spec = item["spec"]
@@ -1766,7 +1772,7 @@ def complaint_analytics(
     if not check_project_permission(db, wid, current_user.id, "read"):
         raise HTTPException(403, "无权限")
 
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     return build_complaint_analytics(item, sheet, date_from=date_from, date_to=date_to)
@@ -1786,7 +1792,7 @@ def inspection_analytics(
     if not check_project_permission(db, wid, current_user.id, "read"):
         raise HTTPException(403, "无权限")
 
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     return build_inspection_analytics(
@@ -1810,7 +1816,7 @@ def oqc_analytics(
     """OQC 批次合格率按送检单位、按日推移（对齐 Excel 首页图表）。"""
     if not check_project_permission(db, wid, current_user.id, "read"):
         raise HTTPException(403, "无权限")
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     return build_oqc_analytics(item, sheet, year=year, month=month)
@@ -1832,7 +1838,7 @@ def _sampling_dept(wid: str, current_user: User, db: Session) -> str:
 def _sampling_ctx(wid: str, current_user: User, db: Session, perm: str, message: str):
     if not check_project_permission(db, wid, current_user.id, perm):
         raise HTTPException(403, message)
-    item = store.get(wid, db)
+    item = store.load_sampling_frames(wid, db)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     return item
@@ -1848,11 +1854,13 @@ def list_sampling_entries(
     item = _sampling_ctx(wid, current_user, db, "read", "无权限")
     sampling_db.ensure_sheets(item, wid, db)
     dept = _sampling_dept(wid, current_user, db)
-    return {
+    payload = {
         "entries": sampling_db.load_tree(item, db, dept),
         "options": sampling_db.options(item, db),
         "dept": dept,
     }
+    release_db(db)
+    return payload
 
 
 @app.get("/api/workbooks/{wid}/sampling/business-unit")
@@ -1887,7 +1895,7 @@ def create_sampling_submission(
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"submission": record, "entries": sampling_db.load_tree(item, db)}
+    return {"submission": record}
 
 
 @app.put("/api/workbooks/{wid}/sampling/submissions/{sid}")
@@ -1910,7 +1918,7 @@ def update_sampling_submission(
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"submission": record, "entries": sampling_db.load_tree(item, db)}
+    return {"submission": record}
 
 
 @app.delete("/api/workbooks/{wid}/sampling/submissions/{sid}")
@@ -1930,7 +1938,7 @@ def delete_sampling_submission(
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "entries": sampling_db.load_tree(item, db)}
+    return {"ok": True}
 
 
 @app.post("/api/workbooks/{wid}/sampling/submissions/{sid}/inspections")
@@ -1951,7 +1959,7 @@ def add_sampling_inspection(
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"inspection": record, "entries": sampling_db.load_tree(item, db)}
+    return {"inspection": record}
 
 
 @app.put("/api/workbooks/{wid}/sampling/inspections/{iid}")
@@ -1973,7 +1981,7 @@ def update_sampling_inspection(
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"inspection": record, "entries": sampling_db.load_tree(item, db)}
+    return {"inspection": record}
 
 
 @app.delete("/api/workbooks/{wid}/sampling/inspections/{iid}")
@@ -1991,7 +1999,7 @@ def delete_sampling_inspection(
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "entries": sampling_db.load_tree(item, db)}
+    return {"ok": True}
 
 
 @app.put("/api/workbooks/{wid}/sampling/inspections/{iid}/exception")
@@ -2012,7 +2020,7 @@ def upsert_sampling_exception(
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"exception": record, "entries": sampling_db.load_tree(item, db)}
+    return {"exception": record}
 
 
 @app.delete("/api/workbooks/{wid}/sampling/inspections/{iid}/exception")
@@ -2030,7 +2038,7 @@ def delete_sampling_exception(
         raise HTTPException(409, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "entries": sampling_db.load_tree(item, db)}
+    return {"ok": True}
 
 
 @app.get("/api/abnormal-monitor")
@@ -2050,7 +2058,7 @@ def abnormal_monitor(
             continue
         if not check_project_permission(db, wid, current_user.id, "read"):
             continue
-        item = store.get(wid, db)
+        item = store.load_for_sheet(wid, db, None)
         if not item:
             continue
         panels.append(build_module_monitor(key, item, sort=sort_dir))
@@ -2759,7 +2767,7 @@ def workbook_column_meta(
     if not check_project_permission(db, wid, current_user.id, "read"):
         raise HTTPException(403, "无权限")
 
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
 
@@ -2784,7 +2792,7 @@ def preview_entry(wid: str, body: RowBody,
     if not check_project_permission(db, wid, current_user.id, 'create'):
         raise HTTPException(403, "无权限")
     
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, body.sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     sheet_name = body.sheet or item["spec"].get("primary_sheet")
@@ -2801,7 +2809,7 @@ def add_row(wid: str, body: RowBody, current_user: User = Depends(get_current_us
     if not check_project_permission(db, wid, current_user.id, 'create'):
         raise HTTPException(403, "无权限录入数据")
     
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, body.sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     raw_sheet = body.sheet or item["spec"].get("primary_sheet")
@@ -2856,7 +2864,7 @@ def patch_row(
     if not check_project_permission(db, wid, current_user.id, "update"):
         raise HTTPException(403, "无权限修改数据")
 
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, body.sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     sheet_name = body.sheet or item["spec"].get("primary_sheet")
@@ -2888,7 +2896,7 @@ def put_row(
     if not check_project_permission(db, wid, current_user.id, "update"):
         raise HTTPException(403, "无权限修改数据")
 
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, body.sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     sheet_name = body.sheet or item["spec"].get("primary_sheet")
@@ -2935,7 +2943,7 @@ def remove_row(
     if not check_project_permission(db, wid, current_user.id, "delete"):
         raise HTTPException(403, "无权限删除数据")
 
-    item = store.get(wid, db)
+    item = store.load_for_sheet(wid, db, body.sheet)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     sheet_name = body.sheet or item["spec"].get("primary_sheet")
@@ -3022,13 +3030,16 @@ def _export_workbook(
     if not check_project_permission(db, wid, current_user.id, 'read'):
         raise HTTPException(403, "无权限访问此项目")
 
-    item = store.get(wid, db)
+    mode = body.mode or "merged"
+    if mode in {"filtered", "sheet"}:
+        item = store.load_for_sheet(wid, db, body.sheet)
+    else:
+        item = store.get(wid, db, persist_repairs=False)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
 
     spec = item["spec"]
     frames = item["frames"]
-    mode = body.mode or "merged"
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
     tmp.close()
 

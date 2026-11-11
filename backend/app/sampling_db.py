@@ -20,7 +20,7 @@ from typing import Any
 
 import pandas as pd
 from sqlalchemy import func, text
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, selectinload
 
 from .entry import fill_row
 from .logutil import log
@@ -95,6 +95,28 @@ class VersionConflict(Exception):
 
 def _project(db: Session, wid: str) -> Project | None:
     return db.query(Project).filter(Project.project_id == wid).first()
+
+
+def _tree_loads():
+    return (
+        selectinload(SamplingSubmission.inspections).selectinload(SamplingInspection.defects),
+        selectinload(SamplingSubmission.inspections).selectinload(SamplingInspection.exception),
+    )
+
+
+def _get_inspection(db: Session, project: Project, iid: str) -> SamplingInspection | None:
+    return (
+        db.query(SamplingInspection)
+        .join(SamplingSubmission)
+        .options(
+            selectinload(SamplingInspection.defects),
+            selectinload(SamplingInspection.exception),
+            selectinload(SamplingInspection.submission).selectinload(SamplingSubmission.inspections).selectinload(SamplingInspection.defects),
+            selectinload(SamplingInspection.submission).selectinload(SamplingSubmission.inspections).selectinload(SamplingInspection.exception),
+        )
+        .filter(SamplingInspection.code == iid, SamplingSubmission.project_id == project.id)
+        .first()
+    )
 
 
 def _text(value: Any) -> str:
@@ -347,10 +369,7 @@ def load_tree(item: dict[str, Any], db: Session, dept: str = "") -> list[dict[st
         return []
     query = (
         db.query(SamplingSubmission)
-        .options(
-            joinedload(SamplingSubmission.inspections).joinedload(SamplingInspection.defects),
-            joinedload(SamplingSubmission.inspections).joinedload(SamplingInspection.exception),
-        )
+        .options(*_tree_loads())
         .filter(SamplingSubmission.project_id == project.id, SamplingSubmission.deleted_at.is_(None))
     )
     if dept:
@@ -405,23 +424,44 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
                 seen.append(s)
         return sorted(seen)
 
-    subs = db.query(SamplingSubmission).filter(SamplingSubmission.project_id == project.id).all()
-    inspections = (
-        db.query(SamplingInspection)
-        .join(SamplingSubmission)
-        .filter(SamplingSubmission.project_id == project.id)
-        .all()
+    alive = (
+        SamplingSubmission.project_id == project.id,
+        SamplingSubmission.deleted_at.is_(None),
     )
-    defects = (
-        db.query(SamplingDefect)
-        .join(SamplingInspection)
-        .join(SamplingSubmission)
-        .filter(SamplingSubmission.project_id == project.id)
-        .all()
-    )
+
+    def _distinct(column):
+        return [row[0] for row in db.query(column).filter(*alive).distinct().all()]
+
+    part_nos = _distinct(SamplingSubmission.part_no)
+    models = _distinct(SamplingSubmission.model)
+    departments_used = _distinct(SamplingSubmission.department)
+    units_used = _distinct(SamplingSubmission.business_unit)
+    confirmers_used = _distinct(SamplingSubmission.confirmer)
+    room_owners_used = _distinct(SamplingSubmission.room_owner)
+    types_from_history = _distinct(SamplingSubmission.submit_type)
+    inspectors = [
+        row[0]
+        for row in (
+            db.query(SamplingInspection.inspector)
+            .join(SamplingSubmission)
+            .filter(*alive)
+            .distinct()
+            .all()
+        )
+    ]
+    locations = [
+        row[0]
+        for row in (
+            db.query(SamplingDefect.location)
+            .join(SamplingInspection)
+            .join(SamplingSubmission)
+            .filter(*alive)
+            .distinct()
+            .all()
+        )
+    ]
     # 抽检登记：不良现象=代码表「大类」；不良位置=该大类下「不良描述」
     # 下拉只取类别管理代码表，不混入历史自由文本（否则大类会变成小类/旧现象）
-    locations = [d.location for d in defects]
     sections_from_code: list[str] = []
     confirmers_from_code: list[str] = []
     heads_from_code: list[str] = []
@@ -485,15 +525,6 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
     model_bu_rows = db.query(ModelBusinessUnit).order_by(ModelBusinessUnit.model).all()
     part_numbers = [m.model for m in model_bu_rows]
     bu_from_map = [m.business_unit for m in model_bu_rows]
-    # 历史 OQC 宽表里的送检类型，合并进标准枚举
-    types_from_history: list[str] = []
-    for name, df in frames.items():
-        if df is None or getattr(df, "empty", True):
-            continue
-        sheet = str(name or "")
-        if ("OQC" in sheet or "抽检批次" in sheet) and "送检类型" in df.columns:
-            types_from_history.extend(df["送检类型"].tolist())
-
     categories = uniq(defect_categories)
     minors_by_cat = {
         cat: uniq(defect_minors_by_category.get(cat, []))
@@ -501,20 +532,20 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
     }
 
     return {
-        "部番": uniq([s.part_no for s in subs] + models_from_code + part_numbers),
-        "机种": uniq([s.model for s in subs] + models_from_code + part_numbers),
-        "送检单位": uniq([s.department for s in subs] + departments + sections_from_code),
-        "事业部": uniq([s.business_unit for s in subs] + bu_from_map),
+        "部番": uniq(part_nos + models_from_code + part_numbers),
+        "机种": uniq(models + models_from_code + part_numbers),
+        "送检单位": uniq(departments_used + departments + sections_from_code),
+        "事业部": uniq(units_used + bu_from_map),
         "送检类型": uniq(list(SUBMIT_TYPE_OPTIONS) + types_from_history),
-        "检验员": uniq([c.inspector for c in inspections]),
+        "检验员": uniq(inspectors),
         "不良位置": uniq(
             [m for minors in minors_by_cat.values() for m in minors] + locations
         ),
         "现象": categories,
         "不良现象大类": categories,
         "不良属性": ["外观不良", "性能不良"],
-        "确认者": uniq([s.confirmer for s in subs] + confirmers_from_code),
-        "课室负责人": uniq([s.room_owner for s in subs] + heads_from_code),
+        "确认者": uniq(confirmers_used + confirmers_from_code),
+        "课室负责人": uniq(room_owners_used + heads_from_code),
         "lookups": {
             "series_sections": series_sections,
             "series_confirmers": series_confirmers,
@@ -612,6 +643,7 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "", dep
 def _get_submission(db: Session, project: Project, sid: str) -> SamplingSubmission:
     record = (
         db.query(SamplingSubmission)
+        .options(*_tree_loads())
         .filter(SamplingSubmission.project_id == project.id, SamplingSubmission.code == sid)
         .first()
     )
@@ -682,8 +714,10 @@ def delete_submission(wid, item, sid, user_id, db, dept: str = "") -> None:
         raise ValueError("只能删除本课室的送检单")
     record.deleted_at = _now()
     _audit(db, user_id, "sampling_submission", record.code, "delete", {"code": record.code})
+    code = record.code
     db.commit()
-    _delete_oqc_rows(db, project, record.code)
+    sheet = _oqc_sheet(item)
+    _delete_oqc_rows(db, project, code, sheet["name"] if sheet else None)
     log(f"[sampling.delete_submission] {sid}")
 
 
@@ -749,9 +783,8 @@ def add_inspection(wid, item, sid, payload, user_id, db, user_label: str = "") -
         updated_at=_now(),
         defects=defects,
     )
-    db.add(inspection)
+    sub.inspections.append(inspection)
     db.flush()
-    db.refresh(sub)
     _sync_completion(sub)
     _audit(db, user_id, "sampling_inspection", inspection.code, "create", {"inspection": inspection.code})
     db.commit()
@@ -764,12 +797,7 @@ def update_inspection(wid, item, iid, payload, user_id, db, user_label: str = ""
     project = _project(db, wid)
     if project is None:
         raise ValueError("项目不存在")
-    inspection = (
-        db.query(SamplingInspection)
-        .join(SamplingSubmission)
-        .filter(SamplingInspection.code == iid, SamplingSubmission.project_id == project.id)
-        .first()
-    )
+    inspection = _get_inspection(db, project, iid)
     if inspection is None:
         raise ValueError("抽检记录不存在")
     if expected_version is not None and int(expected_version) != int(inspection.version or 1):
@@ -804,7 +832,6 @@ def update_inspection(wid, item, iid, payload, user_id, db, user_label: str = ""
     inspection.updated_at = _now()
     inspection.defects = defects
     db.flush()
-    db.refresh(sub)
     _sync_completion(sub)
     _audit(db, user_id, "sampling_inspection", inspection.code, "update", {"inspection": inspection.code})
     db.commit()
@@ -816,20 +843,15 @@ def delete_inspection(wid, item, iid, user_id, db) -> None:
     project = _project(db, wid)
     if project is None:
         raise ValueError("项目不存在")
-    inspection = (
-        db.query(SamplingInspection)
-        .join(SamplingSubmission)
-        .filter(SamplingInspection.code == iid, SamplingSubmission.project_id == project.id)
-        .first()
-    )
+    inspection = _get_inspection(db, project, iid)
     if inspection is None:
         raise ValueError("抽检记录不存在")
     sub = inspection.submission
-    db.query(SamplingException).filter(SamplingException.inspection_id == inspection.id).delete()
-    db.query(SamplingDefect).filter(SamplingDefect.inspection_id == inspection.id).delete()
+    db.query(SamplingException).filter(SamplingException.inspection_id == inspection.id).delete(synchronize_session=False)
+    db.query(SamplingDefect).filter(SamplingDefect.inspection_id == inspection.id).delete(synchronize_session=False)
+    sub.inspections = [c for c in list(sub.inspections or []) if c.id != inspection.id]
     db.delete(inspection)
     db.flush()
-    db.refresh(sub)
     _sync_completion(sub)
     _audit(db, user_id, "sampling_inspection", iid, "delete", {"inspection": iid})
     db.commit()
@@ -844,12 +866,7 @@ def upsert_exception(wid, item, iid, payload, user_id, db, user_label: str = "")
     project = _project(db, wid)
     if project is None:
         raise ValueError("项目不存在")
-    inspection = (
-        db.query(SamplingInspection)
-        .join(SamplingSubmission)
-        .filter(SamplingInspection.code == iid, SamplingSubmission.project_id == project.id)
-        .first()
-    )
+    inspection = _get_inspection(db, project, iid)
     if inspection is None:
         raise ValueError("抽检记录不存在")
 
@@ -888,12 +905,7 @@ def delete_exception(wid, item, iid, user_id, db) -> None:
     project = _project(db, wid)
     if project is None:
         raise ValueError("项目不存在")
-    inspection = (
-        db.query(SamplingInspection)
-        .join(SamplingSubmission)
-        .filter(SamplingInspection.code == iid, SamplingSubmission.project_id == project.id)
-        .first()
-    )
+    inspection = _get_inspection(db, project, iid)
     if inspection is None or inspection.exception is None:
         raise ValueError("异常记录不存在")
     sub = inspection.submission
@@ -914,55 +926,104 @@ def _oqc_sheet(item: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def _delete_oqc_rows(db: Session, project: Project, sid: str) -> None:
-    sheet = None
-    for s in db.query(SheetData.sheet_name).filter(SheetData.project_id == project.id).distinct():
-        if "OQC" in (s[0] or "") or "抽检批次" in (s[0] or ""):
-            sheet = s[0]
-            break
-    if not sheet:
+def _delete_oqc_rows(db: Session, project: Project, sid: str, sheet_name: str | None) -> None:
+    if not sheet_name:
         return
     db.execute(
         text(
             "DELETE FROM sheet_data WHERE project_id = :pid AND sheet_name = :sn "
-            "AND JSON_UNQUOTE(JSON_EXTRACT(row_data, '$.\"送检单号\"')) = :sid"
+            "AND submission_code = :sid"
         ),
-        {"pid": project.id, "sn": sheet, "sid": sid},
+        {"pid": project.id, "sn": sheet_name, "sid": sid},
     )
     db.commit()
 
 
+def _exception_fields(exception: SamplingException | None) -> dict[str, Any] | None:
+    if exception is None:
+        return None
+    return {
+        "oa_no": exception.oa_no,
+        "qc_company": exception.qc_company,
+        "owner_dept": exception.owner_dept,
+        "owner": exception.owner,
+        "temp_action": exception.temp_action,
+        "root_cause": exception.root_cause,
+        "perm_action": exception.perm_action,
+        "verify": exception.verify,
+        "close_date": exception.close_date,
+        "close_days": exception.close_days,
+        "confirmer": exception.confirmer,
+        "room_owner": exception.room_owner,
+        "dept_head": exception.dept_head,
+        "quality_engineer": exception.quality_engineer,
+    }
+
+
 def _sync_oqc(db: Session, item: dict[str, Any], project: Project, sub: SamplingSubmission) -> None:
-    """按送检单同步 OQC 宽表：删除旧行，插入重算后的行。"""
+    """按送检单同步 OQC 宽表：先一次载入抽检树，再按生成列删除旧行。"""
     sheet = _oqc_sheet(item)
     if sheet is None:
         return
-    db.flush()
-    _delete_oqc_rows(db, project, sub.code)
-
-    inspections = sorted(sub.inspections, key=lambda c: c.code)
-    if not inspections:
-        db.commit()
+    sub_id = sub.id
+    fresh = (
+        db.query(SamplingSubmission)
+        .options(*_tree_loads())
+        .filter(SamplingSubmission.id == sub_id)
+        .first()
+    )
+    if fresh is None:
         return
 
-    batch_failed = any(c.defects for c in inspections)
+    inspections = []
+    for insp in sorted(fresh.inspections or [], key=lambda c: c.code):
+        inspections.append({
+            "code": insp.code,
+            "inspector": insp.inspector,
+            "appearance_qty": insp.appearance_qty,
+            "function_qty": insp.function_qty,
+            "defect_qty": insp.defect_qty,
+            "defect_rate": insp.defect_rate,
+            "verdict": insp.verdict,
+            "defects": [
+                {"location": d.location, "phenomenon": d.phenomenon, "qty": d.qty, "attr": d.attr}
+                for d in (insp.defects or [])
+            ],
+            "exception": _exception_fields(insp.exception),
+        })
+    header = {
+        "submit_date": fresh.submit_date,
+        "month_label": fresh.month_label,
+        "submit_type": fresh.submit_type,
+        "part_no": fresh.part_no,
+        "model": fresh.model,
+        "qty": fresh.qty,
+        "batch_seq": fresh.batch_seq,
+        "urgent": fresh.urgent,
+        "remark": fresh.remark,
+        "confirmer": fresh.confirmer,
+        "room_owner": fresh.room_owner,
+        "code": fresh.code,
+    }
+    batch_failed = any(item_insp["defects"] for item_insp in inspections)
     frames = item.get("frames") or {}
+    payloads: list[dict[str, Any]] = []
     for index, insp in enumerate(inspections):
         values = {
-            "日期": sub.submit_date.strftime("%Y-%m-%d") if isinstance(sub.submit_date, datetime) else sub.submit_date,
-            "月份": sub.month_label,
-            "送检类型": _text(sub.submit_type) or "正常送检",
-            "机种": sub.part_no or sub.model,
-            "送检数量": sub.qty,
-            "外观抽检数量": insp.appearance_qty,
-            "机能抽检数量": insp.function_qty,
-            "同批送检次数": sub.batch_seq,
-            "是否紧急出货": sub.urgent,
-            "层别备注": sub.remark,
-            "确认者": sub.confirmer,
-            "课室负责人": sub.room_owner,
-            OQC_LINK_SUB: sub.code,
-            OQC_LINK_INSP: insp.code,
+            "日期": header["submit_date"].strftime("%Y-%m-%d") if isinstance(header["submit_date"], datetime) else header["submit_date"],
+            "月份": header["month_label"],
+            "送检类型": _text(header["submit_type"]) or "正常送检",
+            "机种": header["part_no"] or header["model"],
+            "送检数量": header["qty"],
+            "外观抽检数量": insp["appearance_qty"],
+            "机能抽检数量": insp["function_qty"],
+            "同批送检次数": header["batch_seq"],
+            "是否紧急出货": header["urgent"],
+            "层别备注": header["remark"],
+            "确认者": header["confirmer"],
+            "课室负责人": header["room_owner"],
+            OQC_LINK_SUB: header["code"],
+            OQC_LINK_INSP: insp["code"],
         }
         try:
             row = fill_row(item["spec"], sheet, frames, values, assign_id=False)
@@ -970,41 +1031,48 @@ def _sync_oqc(db: Session, item: dict[str, Any], project: Project, sub: Sampling
             log(f"[sampling.sync_oqc] fill_row failed: {exc}")
             continue
 
-        defects = insp.defects or []
+        defects = insp["defects"]
         if defects:
-            row["不良位置"] = DEFECT_SEP.join(d.location or "" for d in defects)
-            row["现象"] = DEFECT_SEP.join(d.phenomenon or "" for d in defects)
-            row["数量"] = DEFECT_SEP.join(str(d.qty or "") for d in defects)
-            row["不良属性"] = DEFECT_SEP.join(d.attr or "" for d in defects)
+            row["不良位置"] = DEFECT_SEP.join(d["location"] or "" for d in defects)
+            row["现象"] = DEFECT_SEP.join(d["phenomenon"] or "" for d in defects)
+            row["数量"] = DEFECT_SEP.join(str(d["qty"] or "") for d in defects)
+            row["不良属性"] = DEFECT_SEP.join(d["attr"] or "" for d in defects)
         else:
             for key in ("不良位置", "现象", "数量", "不良属性"):
                 row[key] = None
-        row["检验员"] = insp.inspector
-        row["不良数量"] = insp.defect_qty
-        row["不良率"] = _pct(insp.defect_rate)
+        row["检验员"] = insp["inspector"]
+        row["不良数量"] = insp["defect_qty"]
+        row["不良率"] = _pct(insp["defect_rate"])
         row[SENT_FIELD] = 1 if index == 0 else 0
         row[PASS_FIELD] = 1 if (index == 0 and not batch_failed) else 0
         row["合格批率"] = 1 if row[PASS_FIELD] else 0
-        row["判定"] = insp.verdict or "OK"
+        row["判定"] = insp["verdict"] or "OK"
 
-        exception = insp.exception
+        exception = insp["exception"]
         if exception is not None:
-            row["OA单号"] = exception.oa_no
-            row["指定质控公司"] = exception.qc_company
-            row["责任单位"] = exception.owner_dept
-            row["责任人"] = exception.owner
-            row["临时对策"] = exception.temp_action
-            row["根因分析"] = exception.root_cause
-            row["永久对策"] = exception.perm_action
-            row["改善后确认"] = exception.verify
-            row["结案日期"] = _iso(exception.close_date) if exception.close_date else None
-            row["结案天数"] = exception.close_days
-            row["确认者"] = exception.confirmer or row.get("确认者")
-            row["课室负责人"] = exception.room_owner or row.get("课室负责人")
-            row["责任课级负责人"] = exception.dept_head
-            row["品质工程师"] = exception.quality_engineer
+            row["OA单号"] = exception["oa_no"]
+            row["指定质控公司"] = exception["qc_company"]
+            row["责任单位"] = exception["owner_dept"]
+            row["责任人"] = exception["owner"]
+            row["临时对策"] = exception["temp_action"]
+            row["根因分析"] = exception["root_cause"]
+            row["永久对策"] = exception["perm_action"]
+            row["改善后确认"] = exception["verify"]
+            row["结案日期"] = _iso(exception["close_date"]) if exception["close_date"] else None
+            row["结案天数"] = exception["close_days"]
+            row["确认者"] = exception["confirmer"] or row.get("确认者")
+            row["课室负责人"] = exception["room_owner"] or row.get("课室负责人")
+            row["责任课级负责人"] = exception["dept_head"]
+            row["品质工程师"] = exception["quality_engineer"]
 
-        payload = {k: (None if (isinstance(v, float) and pd.isna(v)) else v) for k, v in row.items() if not str(k).startswith("__")}
+        payloads.append({
+            k: (None if (isinstance(v, float) and pd.isna(v)) else v)
+            for k, v in row.items()
+            if not str(k).startswith("__")
+        })
+
+    _delete_oqc_rows(db, project, header["code"], sheet["name"])
+    for payload in payloads:
         db.add(
             SheetData(
                 project_id=project.id,
@@ -1015,5 +1083,4 @@ def _sync_oqc(db: Session, item: dict[str, Any], project: Project, sub: Sampling
                 created_at=_now(),
             )
         )
-
     db.commit()

@@ -17,6 +17,13 @@ DB_USER = os.getenv('DB_USER', 'root')
 DB_PASSWORD = os.getenv('DB_PASSWORD', '')
 DB_NAME = os.getenv('DB_NAME', 'excel_to_web')
 
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
 # Database URL
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
 
@@ -45,12 +52,21 @@ def init_database():
     
     temp_engine.dispose()
     
-    # Now create engine with the database
+    # Now create engine with the database.
+    # 读请求算完 pandas 前会 rollback 把连接还回池；超时避免一条慢 SQL 一直占着连接。
     engine = create_engine(
         DATABASE_URL,
         pool_pre_ping=True,
         pool_recycle=3600,
-        echo=False
+        pool_size=_env_int("DB_POOL_SIZE", 10),
+        max_overflow=_env_int("DB_MAX_OVERFLOW", 20),
+        pool_timeout=_env_int("DB_POOL_TIMEOUT", 30),
+        connect_args={
+            "connect_timeout": _env_int("DB_CONNECT_TIMEOUT", 10),
+            "read_timeout": _env_int("DB_READ_TIMEOUT", 120),
+            "write_timeout": _env_int("DB_WRITE_TIMEOUT", 120),
+        },
+        echo=False,
     )
     
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -142,6 +158,58 @@ def _migrate_schema(engine):
             conn.execute(text("ALTER TABLE users ADD COLUMN department_id INT NULL, ADD INDEX ix_users_department_id (department_id)"))
             conn.commit()
             print("Added users.department_id column.")
+
+        if not _has_column(conn, "sheet_data", "submission_code"):
+            conn.execute(text(
+                "ALTER TABLE sheet_data ADD COLUMN submission_code VARCHAR(80) "
+                "GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(`row_data`, '$.\"送检单号\"'))) STORED"
+            ))
+            conn.commit()
+            print("Added sheet_data.submission_code generated column.")
+        if not _has_index(conn, "sheet_data", "idx_sheet_submission_code"):
+            conn.execute(text(
+                "ALTER TABLE sheet_data ADD INDEX idx_sheet_submission_code "
+                "(project_id, sheet_name, submission_code)"
+            ))
+            conn.commit()
+            print("Added idx_sheet_submission_code.")
+        if not _has_index(conn, "sampling_submissions", "idx_sampling_project_deleted"):
+            conn.execute(text(
+                "ALTER TABLE sampling_submissions ADD INDEX idx_sampling_project_deleted "
+                "(project_id, deleted_at)"
+            ))
+            conn.commit()
+            print("Added idx_sampling_project_deleted.")
+
+
+def _has_column(conn, table: str, column: str) -> bool:
+    result = conn.execute(
+        text(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column"
+        ),
+        {"table": table, "column": column},
+    )
+    return bool(result.scalar())
+
+
+def _has_index(conn, table: str, index: str) -> bool:
+    result = conn.execute(
+        text(
+            "SELECT COUNT(*) FROM information_schema.STATISTICS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND INDEX_NAME = :index"
+        ),
+        {"table": table, "index": index},
+    )
+    return bool(result.scalar())
+
+
+def release_db(db: Session) -> None:
+    """结束当前事务，把连接还回池。读出的普通 dict / DataFrame 不受影响。"""
+    try:
+        db.rollback()
+    except Exception:
+        pass
 
 
 def get_db():

@@ -444,9 +444,9 @@ function flash(message) {
   }, 4000);
 }
 
-async function load() {
+async function load(silent = false) {
   if (!props.workbookId) return;
-  loading.value = true;
+  if (!silent) loading.value = true;
   error.value = "";
   try {
     const data = await loadSampling(props.workbookId);
@@ -455,7 +455,7 @@ async function load() {
   } catch (err) {
     error.value = err.message;
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -517,8 +517,8 @@ async function save() {
       改善后确认: form.value.改善后确认,
       结案日期: form.value.结案日期,
     };
-    const data = await saveException(props.workbookId, form.value.iid, payload);
-    entries.value = data.entries || [];
+    await saveException(props.workbookId, form.value.iid, payload);
+    await load(true);
     flash(`异常处理已保存：${form.value.iid}`);
     closeModal();
   } catch (err) {
@@ -531,8 +531,8 @@ async function save() {
 async function clear(c) {
   if (!confirm(`清除 ${c.抽检单号} 的异常处理内容？`)) return;
   try {
-    const data = await deleteException(props.workbookId, c.抽检单号);
-    entries.value = data.entries || [];
+    await deleteException(props.workbookId, c.抽检单号);
+    await load(true);
     flash(`已清除 ${c.抽检单号}`);
   } catch (err) {
     error.value = err.message;

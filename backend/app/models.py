@@ -1,7 +1,7 @@
 """
 Database models for Excel-to-Web system with authentication and project management.
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, Index, JSON, Boolean
+from sqlalchemy import Column, Computed, Integer, String, Text, DateTime, Date, ForeignKey, Index, JSON, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -84,9 +84,19 @@ class SheetData(Base):
     # Relationships
     project = relationship('Project', back_populates='sheet_data')
     
+    # 送检单号从 JSON 抽出，OQC 同步按它删除，避免 JSON_EXTRACT 扫整张表
+    submission_code = Column(
+        String(80),
+        Computed(
+            """JSON_UNQUOTE(JSON_EXTRACT(row_data, '$."送检单号"'))""",
+            persisted=True,
+        ),
+    )
+
     # Indexes for efficient queries
     __table_args__ = (
         Index('idx_project_sheet', 'project_id', 'sheet_name'),
+        Index('idx_sheet_submission_code', 'project_id', 'sheet_name', 'submission_code'),
     )
 
 
@@ -134,6 +144,10 @@ class SamplingSubmission(Base):
     deleted_at = Column(DateTime, nullable=True)
 
     inspections = relationship('SamplingInspection', back_populates='submission', cascade='all, delete-orphan')
+
+    __table_args__ = (
+        Index('idx_sampling_project_deleted', 'project_id', 'deleted_at'),
+    )
 
 
 class SamplingInspection(Base):
