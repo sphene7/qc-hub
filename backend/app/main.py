@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from . import store
@@ -72,7 +73,16 @@ from .auth import (
     list_all_project_permissions,
     set_user_project_permissions,
 )
-from .models import User, Project, ProjectMember, Department, SheetData, Role, ModelBusinessUnit
+from .models import (
+    User,
+    Project,
+    ProjectMember,
+    Department,
+    SheetData,
+    Role,
+    ModelBusinessUnit,
+    SamplingInspector,
+)
 from .logutil import log, LOG_FILE
 from .supervise import note_blocking, start_supervisor
 from .sheet_util import resolve_sheet_name, sheet_row_stats
@@ -1114,6 +1124,12 @@ class ModelBuBulkBody(BaseModel):
     items: list[ModelBuBody] = Field(default_factory=list)
 
 
+class InspectorBody(BaseModel):
+    name: str
+    active: bool = True
+    sort_order: int | None = None
+
+
 def _upsert_model_bu_rows(db: Session, rows: list[tuple[str, str]]) -> dict[str, int]:
     """按部番 upsert（model, business_unit）。"""
     existing = {m.model: m for m in db.query(ModelBusinessUnit).all()}
@@ -1313,6 +1329,126 @@ def delete_model_bu_for_project(
         raise HTTPException(403, "无权限维护部番对照")
     _sampling_ctx(wid, current_user, db, "read", "无权限")
     row = db.query(ModelBusinessUnit).filter(ModelBusinessUnit.id == item_id).first()
+    if not row:
+        raise HTTPException(404, "记录不存在")
+    db.delete(row)
+    db.commit()
+    return {"message": "已删除"}
+
+
+def _inspector_item(row: SamplingInspector) -> dict:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "active": bool(row.active),
+        "sort_order": int(row.sort_order or 0),
+    }
+
+
+def _inspectors_payload(db: Session, q: str | None, include_inactive: bool, page: int, page_size: int):
+    page = max(1, page)
+    page_size = min(max(1, page_size), 200)
+    query = db.query(SamplingInspector)
+    if not include_inactive:
+        query = query.filter(SamplingInspector.active.is_(True))
+    if q and q.strip():
+        query = query.filter(SamplingInspector.name.like(f"%{q.strip()}%"))
+    total = query.count()
+    rows = (
+        query.order_by(SamplingInspector.sort_order.asc(), SamplingInspector.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {
+        "items": [_inspector_item(r) for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@app.get("/api/workbooks/{wid}/sampling/inspectors")
+def list_inspectors_for_project(
+    wid: str,
+    q: str | None = None,
+    include_inactive: bool = False,
+    page: int = 1,
+    page_size: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    return _inspectors_payload(db, q, include_inactive, page, page_size)
+
+
+@app.post("/api/workbooks/{wid}/sampling/inspectors")
+def create_inspector_for_project(
+    wid: str,
+    body: InspectorBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护检验员")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "检验员姓名不能为空")
+    if db.query(SamplingInspector).filter(SamplingInspector.name == name).first():
+        raise HTTPException(400, "该检验员已存在")
+    max_sort = db.query(func.max(SamplingInspector.sort_order)).scalar() or 0
+    sort_order = body.sort_order if body.sort_order is not None else int(max_sort) + 1
+    row = SamplingInspector(name=name, active=bool(body.active), sort_order=sort_order)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"item": _inspector_item(row)}
+
+
+@app.put("/api/workbooks/{wid}/sampling/inspectors/{item_id}")
+def update_inspector_for_project(
+    wid: str,
+    item_id: int,
+    body: InspectorBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护检验员")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    row = db.query(SamplingInspector).filter(SamplingInspector.id == item_id).first()
+    if not row:
+        raise HTTPException(404, "记录不存在")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "检验员姓名不能为空")
+    duplicated = (
+        db.query(SamplingInspector)
+        .filter(SamplingInspector.name == name, SamplingInspector.id != item_id)
+        .first()
+    )
+    if duplicated:
+        raise HTTPException(400, "该检验员已存在")
+    row.name = name
+    row.active = bool(body.active)
+    if body.sort_order is not None:
+        row.sort_order = int(body.sort_order)
+    db.commit()
+    return {"message": "已更新", "item": _inspector_item(row)}
+
+
+@app.delete("/api/workbooks/{wid}/sampling/inspectors/{item_id}")
+def delete_inspector_for_project(
+    wid: str,
+    item_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护检验员")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    row = db.query(SamplingInspector).filter(SamplingInspector.id == item_id).first()
     if not row:
         raise HTTPException(404, "记录不存在")
     db.delete(row)

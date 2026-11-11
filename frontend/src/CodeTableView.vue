@@ -20,6 +20,7 @@
         <button type="button" :class="{ on: oqcPage === 3 }" @click="oqcPage = 3">第三页 · 机种 · 负责人</button>
         <button type="button" :class="{ on: oqcPage === 4 }" @click="oqcPage = 4">第四页 · 课室负责人 · 课室</button>
         <button type="button" :class="{ on: oqcPage === 5 }" @click="oqcPage = 5">第五页 · 部番对照</button>
+        <button type="button" :class="{ on: oqcPage === 6 }" @click="oqcPage = 6">第六页 · 检验员</button>
       </div>
 
       <div class="oqc-overview">
@@ -313,6 +314,18 @@
           </div>
         </header>
         <ModelBuManagement :workbook-id="workbookId" :can-edit="canEdit || canHandle" />
+      </section>
+
+      <section v-show="oqcPage === 6" class="oqc-section">
+        <header class="oqc-section-head">
+          <div>
+            <h3>检验员名单</h3>
+            <p class="section-desc">
+              抽检登记下拉用的固定名单。可在这里增删改、停用；停用后不再出现在新登记选项里，历史记录仍保留原姓名。
+            </p>
+          </div>
+        </header>
+        <InspectorManagement :workbook-id="workbookId" :can-edit="canEdit || canHandle" />
       </section>
 
       <!-- OQC editors -->
@@ -767,6 +780,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { authFetch } from "./api.js";
 import ComboField from "./ComboField.vue";
 import ModelBuManagement from "./ModelBuManagement.vue";
+import InspectorManagement from "./InspectorManagement.vue";
 
 const props = defineProps({
   workbookId: String,

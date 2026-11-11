@@ -323,28 +323,6 @@ import {
   updateInspection,
 } from "./samplingApi.js";
 
-/** 抽检登记检验员固定名单（不再沿用历史自由输入） */
-const INSPECTOR_OPTIONS = [
-  "张安粉",
-  "王小兰",
-  "周  旭",
-  "夏爱民",
-  "郭志文",
-  "唐光朗",
-  "冯永秀",
-  "李  赫",
-  "任宁宁",
-  "雷  璇",
-  "武佳佳",
-  "卢  雨",
-  "林金云",
-  "冯祖乐",
-  "黎薇",
-  "黄雨洁",
-  "周俊宏",
-  "肖复原",
-];
-
 const props = defineProps({
   workbookId: String,
   canUpdate: { type: Boolean, default: false },
@@ -375,6 +353,12 @@ const defectCategories = computed(() => {
 const minorsByCategory = computed(
   () => defectLookups.value.defect_minors_by_category || {},
 );
+/** 类别管理第六页维护的检验员名单；无数据时回退 options.检验员 */
+const inspectorRoster = computed(() => {
+  const fromLookup = defectLookups.value.inspectors || [];
+  if (fromLookup.length) return uniqOptions(fromLookup);
+  return uniqOptions(options.value.检验员 || []);
+});
 
 function uniqOptions(list) {
   const out = [];
@@ -403,7 +387,7 @@ function inspectorOptionsFor(current, block = null, index = -1) {
       if (n && i !== index) taken.add(n);
     });
   }
-  const base = INSPECTOR_OPTIONS.filter((o) => !taken.has(o));
+  const base = inspectorRoster.value.filter((o) => !taken.has(o));
   return withCurrentOption(base, current);
 }
 

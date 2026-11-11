@@ -31,6 +31,7 @@ from .models import (
     SamplingDefect,
     SamplingException,
     SamplingInspection,
+    SamplingInspector,
     SamplingSubmission,
     SheetData,
     User,
@@ -272,6 +273,24 @@ def _inspection_dict(c: SamplingInspection, sub: SamplingSubmission) -> dict[str
     }
 
 
+def _is_submission_ok(inspections: list[SamplingInspection]) -> bool:
+    """与列表状态 OK 一致：有抽检且无不良。"""
+    if not inspections:
+        return False
+    return not any(len(c.defects or []) > 0 for c in inspections)
+
+
+def _inspect_qty(inspections: list[SamplingInspection]) -> int | None:
+    """检验数量：有抽检（含 NG）时按各抽检「外观」汇总；外观为空则用机能。"""
+    if not inspections:
+        return None
+    appearance = sum(int(c.appearance_qty or 0) for c in inspections)
+    if appearance > 0:
+        return appearance
+    function = sum(int(c.function_qty or 0) for c in inspections)
+    return function if function > 0 else None
+
+
 def _submission_dict(s: SamplingSubmission) -> dict[str, Any]:
     inspections = sorted(s.inspections or [], key=lambda c: c.code)
     day = _iso(s.submit_date)
@@ -287,6 +306,7 @@ def _submission_dict(s: SamplingSubmission) -> dict[str, Any]:
         "送检单位": s.department or "",
         "事业部": s.business_unit or "",
         "送检数量": s.qty,
+        "检验数量": _inspect_qty(inspections),
         "同批送检次数": s.batch_seq,
         "是否紧急出货": s.urgent or "",
         "层别备注": s.remark or "",
@@ -330,11 +350,7 @@ def _next_batch_seq(
 def _sync_completion(sub: SamplingSubmission) -> None:
     """判定合格（有抽检且无不良）后写入完成日期；否则清空。"""
     inspections = list(sub.inspections or [])
-    if not inspections:
-        sub.completed_at = None
-        return
-    has_defect = any(len(c.defects or []) > 0 for c in inspections)
-    if has_defect:
+    if not _is_submission_ok(inspections):
         sub.completed_at = None
         return
     if sub.completed_at is None:
@@ -500,13 +516,25 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         for cat in categories
     }
 
+    managed_inspectors = [
+        r.name
+        for r in db.query(SamplingInspector)
+        .filter(SamplingInspector.active.is_(True))
+        .order_by(SamplingInspector.sort_order.asc(), SamplingInspector.id.asc())
+        .all()
+        if _text(r.name)
+    ]
+    history_inspectors = []
+    for c in inspections:
+        history_inspectors.extend(_split_parts(c.inspector))
+
     return {
         "部番": uniq([s.part_no for s in subs] + models_from_code + part_numbers),
         "机种": uniq([s.model for s in subs] + models_from_code + part_numbers),
         "送检单位": uniq([s.department for s in subs] + departments + sections_from_code),
         "事业部": uniq([s.business_unit for s in subs] + bu_from_map),
         "送检类型": uniq(list(SUBMIT_TYPE_OPTIONS) + types_from_history),
-        "检验员": uniq([c.inspector for c in inspections]),
+        "检验员": managed_inspectors or uniq(history_inspectors),
         "不良位置": uniq(
             [m for minors in minors_by_cat.values() for m in minors] + locations
         ),
@@ -523,6 +551,7 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
             "submit_types": list(SUBMIT_TYPE_OPTIONS),
             "defect_categories": categories,
             "defect_minors_by_category": minors_by_cat,
+            "inspectors": managed_inspectors,
         },
     }
 

@@ -143,6 +143,27 @@ def _migrate_schema(engine):
             conn.commit()
             print("Added users.department_id column.")
 
+        # 检验员名单：空表时写入历史固定名单，便于类别管理增删改
+        result = conn.execute(text("SHOW TABLES LIKE 'sampling_inspectors'"))
+        if result.fetchone():
+            count = conn.execute(text("SELECT COUNT(*) FROM sampling_inspectors")).scalar() or 0
+            if int(count) == 0:
+                defaults = [
+                    "张安粉", "王小兰", "周  旭", "夏爱民", "郭志文", "唐光朗",
+                    "冯永秀", "李  赫", "任宁宁", "雷  璇", "武佳佳", "卢  雨",
+                    "林金云", "冯祖乐", "黎薇", "黄雨洁", "周俊宏", "肖复原",
+                ]
+                for i, name in enumerate(defaults):
+                    conn.execute(
+                        text(
+                            "INSERT INTO sampling_inspectors (name, active, sort_order, created_at) "
+                            "VALUES (:name, 1, :sort_order, UTC_TIMESTAMP())"
+                        ),
+                        {"name": name, "sort_order": i + 1},
+                    )
+                conn.commit()
+                print(f"Seeded {len(defaults)} sampling_inspectors.")
+
 
 def get_db():
     """Get database session for FastAPI dependency injection."""

@@ -240,3 +240,15 @@ class ModelBusinessUnit(Base):
     base_model = Column(String(50), nullable=True, index=True)            # "-" 前的基型
     business_unit = Column(String(50), nullable=False, index=True)        # 事业部
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SamplingInspector(Base):
+    """抽检登记检验员名单（类别管理可维护）。"""
+    __tablename__ = 'sampling_inspectors'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), unique=True, nullable=False, index=True)
+    active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)

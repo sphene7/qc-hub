@@ -39,6 +39,18 @@ CREATE TABLE IF NOT EXISTS `sampling_submissions` (
   CONSTRAINT `sampling_submissions_ibfk_2` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='送检单';
 
+-- 1b) 检验员名单
+CREATE TABLE IF NOT EXISTS `sampling_inspectors` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `name` varchar(50) NOT NULL COMMENT '检验员姓名',
+  `active` tinyint(1) NOT NULL DEFAULT 1,
+  `sort_order` int NOT NULL DEFAULT 0,
+  `created_at` datetime NOT NULL,
+  `updated_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ix_sampling_inspectors_name` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='抽检检验员名单';
+
 -- 2) 抽检记录（每检验员一条）
 CREATE TABLE IF NOT EXISTS `sampling_inspections` (
   `id` int NOT NULL AUTO_INCREMENT,

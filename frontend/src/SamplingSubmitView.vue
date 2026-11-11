@@ -82,6 +82,7 @@
               <th>事业部</th>
               <th>送检单位</th>
               <th class="num">送检数量</th>
+              <th class="num">检验数量</th>
               <th class="num">同批次数</th>
               <th class="num">抽检人数</th>
               <th class="num">异常</th>
@@ -91,9 +92,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="15"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="16"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="15">
+              <td colspan="16">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">📋</span>
                   没有符合条件的送检单
@@ -125,6 +126,7 @@
                 <td><span v-if="e.事业部" class="bu-tag">{{ e.事业部 }}</span><span v-else>-</span></td>
                 <td>{{ e.送检单位 || "-" }}</td>
                 <td class="num">{{ e.送检数量 ?? "-" }}</td>
+                <td class="num">{{ e.检验数量 ?? "-" }}</td>
                 <td class="num">{{ e.同批送检次数 ?? "-" }}</td>
                 <td class="num">{{ (e.抽检 || []).length }}</td>
                 <td class="num">{{ defectCount(e) || "-" }}</td>
@@ -351,7 +353,7 @@ function exportFiltered() {
   try {
     const headers = [
       "送检单号", "送检日期", "送检时间", "送检类型", "部番", "机种", "事业部", "送检单位",
-      "送检数量", "同批送检次数", "是否紧急出货", "确认者", "课室负责人",
+      "送检数量", "检验数量", "同批送检次数", "是否紧急出货", "确认者", "课室负责人",
       "层别备注", "抽检人数", "异常", "状态", "完成日期", "完成时间", "登记人",
     ];
     const data = rows.map((e) => {
@@ -367,6 +369,7 @@ function exportFiltered() {
         e.事业部,
         e.送检单位,
         e.送检数量,
+        e.检验数量 ?? "",
         e.同批送检次数,
         e.是否紧急出货,
         e.确认者,
