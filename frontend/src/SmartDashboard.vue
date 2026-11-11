@@ -1479,6 +1479,16 @@ async function exportData() {
     alert('无法导出：未找到主表');
     return;
   }
+  const filters = buildFiltersPayload();
+  const hasDateRange = Object.values(filters).some(
+    (v) => v && typeof v === 'object' && v.type === 'date_range' && (v.start || v.end),
+  );
+  if (!hasDateRange) {
+    const ok = confirm(
+      '未选日期将按当前其他条件导出（可能跨好几个月）。\n建议先在筛选里填日期范围，例如昨天。是否仍要继续？',
+    );
+    if (!ok) return;
+  }
   tableExporting.value = true;
   try {
     const title = props.spec?.title || props.design?.title || '明细';
@@ -1490,7 +1500,7 @@ async function exportData() {
         body: JSON.stringify({
           mode: 'filtered',
           sheet,
-          filters: buildFiltersPayload(),
+          filters,
           sort: sortField.value
             ? { field: sortField.value, direction: sortDirection.value }
             : null,

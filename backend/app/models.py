@@ -126,6 +126,7 @@ class SamplingSubmission(Base):
     remark = Column(Text, nullable=True)
     confirmer = Column(String(50), nullable=True)
     room_owner = Column(String(50), nullable=True)
+    completed_at = Column(DateTime, nullable=True)  # 完成日期：判定 OK 后自动写入
     version = Column(Integer, nullable=False, default=1)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

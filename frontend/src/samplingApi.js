@@ -84,10 +84,12 @@ export function deleteException(workbookId, iid) {
 
 export function submissionStatus(entry) {
   const inspections = entry?.抽检 || [];
-  const defects = entry?.异常总数 ?? inspections.reduce((n, c) => n + (c.不良组 || []).length, 0);
-  if (!inspections.length) return { label: "待抽检", cls: "badge-muted" };
-  if (defects > 0) return { label: "NG", cls: "badge-bad" };
-  return { label: "OK", cls: "badge-ok" };
+  if (!inspections.length) return { label: "待抽检", cls: "smp-badge-muted" };
+  const verdicts = inspections.map((c) => String(c.判定 || "").trim().toUpperCase());
+  if (verdicts.some((v) => !v)) return { label: "待判定", cls: "smp-badge-muted" };
+  if (verdicts.some((v) => v.startsWith("NG"))) return { label: "NG", cls: "smp-badge-bad" };
+  if (verdicts.every((v) => v.startsWith("OK"))) return { label: "OK", cls: "smp-badge-ok" };
+  return { label: "待判定", cls: "smp-badge-muted" };
 }
 
 export function defectCount(entry) {

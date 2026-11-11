@@ -18,7 +18,7 @@
 
     <div class="smp-filters card">
       <div class="smp-search">
-        <input v-model="filters.keyword" placeholder="搜索 单号 / 机种 / 检验员 / 现象" />
+        <input v-model="filters.keyword" placeholder="搜索 单号 / 部番 / 机种 / 检验员 / 现象" />
       </div>
       <div class="smp-seg">
         <button
@@ -143,13 +143,12 @@
             <select v-model="form.sid">
               <option value="">— 选择送检单 —</option>
               <option v-for="s in optionsList" :key="s.送检单号" :value="s.送检单号">
-                {{ s.送检单号 }} · {{ s.日期 }} · {{ s.机种 }} · 送检 {{ s.送检数量 ?? "-" }}
-                {{ (s.抽检 || []).length ? `（已抽检 ${(s.抽检 || []).length} 人）` : "" }}
+                {{ submissionOptionLabel(s) }}
               </option>
             </select>
           </label>
           <div v-else class="smp-fixed-info">
-            {{ form.sid }} · {{ selectedSubmission?.机种 }} · 送检 {{ selectedSubmission?.送检数量 }}
+            {{ submissionOptionLabel(selectedSubmission) }}
           </div>
 
           <div
@@ -478,7 +477,7 @@ const filtered = computed(() =>
     const ng = isNg(c.判定);
     if (filters.value.result === "ok" && ng) return false;
     if (filters.value.result === "ng" && !ng) return false;
-    return matchKeyword(filters.value.keyword, c.抽检单号, c.机种, c.检验员, c.现象);
+    return matchKeyword(filters.value.keyword, c.抽检单号, c.部番, c.机种, c.检验员, c.现象);
   }),
 );
 const todayMine = computed(() => {
@@ -503,6 +502,20 @@ const optionsList = computed(() => {
 const selectedSubmission = computed(
   () => entries.value.find((e) => e.送检单号 === form.value.sid) || null,
 );
+
+/** 送检单下拉/回显：用完整部番，不用缩成机种 */
+function submissionOptionLabel(s) {
+  if (!s) return "";
+  const day = String(s.送检日期 || s.日期 || "").replace("T", " ").slice(0, 16);
+  const part = s.部番 || s.机种 || "-";
+  const type = s.送检类型 || "-";
+  const dept = s.送检单位 || "-";
+  const batch = s.同批送检次数 != null && s.同批送检次数 !== "" ? `同批${s.同批送检次数}` : "";
+  const qty = s.送检数量 != null && s.送检数量 !== "" ? `数量${s.送检数量}` : "数量-";
+  const inspected = (s.抽检 || []).length;
+  const tail = inspected ? `已抽检${inspected}人` : "待抽检";
+  return [s.送检单号, day, part, type, dept, batch, qty, tail].filter(Boolean).join(" · ");
+}
 
 function emptyBlock() {
   return { 外观抽检数量: "", 机能抽检数量: "", inspectors: [""], defects: [] };

@@ -11,6 +11,15 @@
         <span v-if="dept" class="smp-stat">课室 <strong>{{ dept }}</strong></span>
       </div>
       <span class="smp-spacer"></span>
+      <button
+        type="button"
+        class="smp-btn smp-btn-ghost"
+        :disabled="loading || exporting || !filtered.length"
+        title="按当前筛选条件导出（含日期）"
+        @click="exportFiltered"
+      >
+        {{ exporting ? '导出中…' : '导出当前筛选' }}
+      </button>
       <button type="button" class="smp-btn smp-btn-ghost" :disabled="loading" @click="load">刷新</button>
     </div>
 
@@ -46,7 +55,7 @@
         </button>
       </div>
       <label class="smp-daterange">
-        日期
+        送检日期
         <input v-model="filters.from" type="date" @change="preset = ''" />
         ~
         <input v-model="filters.to" type="date" @change="preset = ''" />
@@ -66,23 +75,25 @@
             <tr>
               <th class="ops">操作</th>
               <th>送检单号</th>
-              <th>日期</th>
+              <th>送检日期</th>
               <th>部番</th>
               <th>送检类型</th>
               <th>机种</th>
               <th>事业部</th>
               <th>送检单位</th>
               <th class="num">送检数量</th>
+              <th class="num">同批次数</th>
               <th class="num">抽检人数</th>
               <th class="num">异常</th>
               <th>状态</th>
+              <th>完成日期</th>
               <th>登记人</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="13"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="15"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="13">
+              <td colspan="15">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">📋</span>
                   没有符合条件的送检单
@@ -107,18 +118,20 @@
                   </button>
                 </td>
                 <td class="mono">{{ e.送检单号 }}</td>
-                <td>{{ e.日期 }}</td>
+                <td>{{ e.送检日期 || e.日期 }}</td>
                 <td class="mono">{{ e.部番 || e.机种 || "-" }}</td>
                 <td>{{ e.送检类型 || "-" }}</td>
                 <td>{{ e.机种 || "-" }}</td>
                 <td><span v-if="e.事业部" class="bu-tag">{{ e.事业部 }}</span><span v-else>-</span></td>
                 <td>{{ e.送检单位 || "-" }}</td>
                 <td class="num">{{ e.送检数量 ?? "-" }}</td>
+                <td class="num">{{ e.同批送检次数 ?? "-" }}</td>
                 <td class="num">{{ (e.抽检 || []).length }}</td>
                 <td class="num">{{ defectCount(e) || "-" }}</td>
                 <td>
                   <span class="smp-badge" :class="statusOf(e).cls">{{ statusOf(e).label }}</span>
                 </td>
+                <td>{{ e.完成日期 || "-" }}</td>
                 <td>{{ e.登记人 || "-" }}</td>
               </tr>
             </template>
@@ -138,7 +151,7 @@
             <p class="smp-section-title">送检信息</p>
             <div class="smp-grid">
               <label class="smp-field">
-                <span>日期</span>
+                <span>送检日期</span>
                 <input v-model="form.日期" type="datetime-local" />
               </label>
               <label class="smp-field">
@@ -179,7 +192,14 @@
               </label>
               <label class="smp-field">
                 <span>同批送检次数</span>
-                <input v-model="form.同批送检次数" type="number" min="0" />
+                <input
+                  :value="form.同批送检次数"
+                  type="number"
+                  min="1"
+                  readonly
+                  class="readonly"
+                  title="同一天、同部番自动递增：1、2、3…"
+                />
               </label>
               <label class="smp-field">
                 <span>是否紧急出货</span>
@@ -275,10 +295,12 @@ const statusOptions = [
 ];
 const presetOptions = [
   { key: "", label: "不限日期" },
+  { key: "yesterday", label: "昨天" },
   { key: "today", label: "今天" },
   { key: "7d", label: "近7天" },
   { key: "month", label: "本月" },
 ];
+const exporting = ref(false);
 
 const statusOf = submissionStatus;
 const lookups = computed(() => options.value.lookups || {});
@@ -290,7 +312,13 @@ function isoDate(d) {
 function applyPreset(key) {
   preset.value = key;
   const now = new Date();
-  if (key === "today") {
+  if (key === "yesterday") {
+    const y = new Date(now);
+    y.setDate(y.getDate() - 1);
+    const day = isoDate(y);
+    filters.value.from = day;
+    filters.value.to = day;
+  } else if (key === "today") {
     filters.value.from = isoDate(now);
     filters.value.to = isoDate(now);
   } else if (key === "7d") {
@@ -304,6 +332,67 @@ function applyPreset(key) {
   } else {
     filters.value.from = "";
     filters.value.to = "";
+  }
+}
+
+function csvEscape(value) {
+  const text = value == null ? "" : String(value);
+  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+}
+
+function exportFiltered() {
+  const rows = filtered.value;
+  if (!rows.length) {
+    alert("当前筛选没有可导出的送检记录");
+    return;
+  }
+  if (!filters.value.from && !filters.value.to) {
+    const ok = confirm(`未选日期，将导出当前筛选的全部 ${rows.length} 条，是否继续？\n（导昨天：先点「昨天」再导出）`);
+    if (!ok) return;
+  }
+  exporting.value = true;
+  try {
+    const headers = [
+      "送检单号", "送检日期", "送检类型", "部番", "机种", "事业部", "送检单位",
+      "送检数量", "同批送检次数", "是否紧急出货", "确认者", "课室负责人",
+      "层别备注", "抽检人数", "异常", "状态", "完成日期", "登记人",
+    ];
+    const lines = [headers.join(",")];
+    for (const e of rows) {
+      lines.push([
+        e.送检单号,
+        String(e.送检日期 || e.日期 || "").replace("T", " ").slice(0, 16),
+        e.送检类型,
+        e.部番,
+        e.机种,
+        e.事业部,
+        e.送检单位,
+        e.送检数量,
+        e.同批送检次数,
+        e.是否紧急出货,
+        e.确认者,
+        e.课室负责人,
+        e.层别备注,
+        (e.抽检 || []).length,
+        defectCount(e),
+        statusOf(e)?.label || statusOf(e),
+        e.完成日期,
+        e.登记人,
+      ].map(csvEscape).join(","));
+    }
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const from = filters.value.from || "all";
+    const to = filters.value.to || from;
+    a.href = url;
+    a.download = `送检记录_${from}_${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    exporting.value = false;
   }
 }
 
@@ -376,6 +465,32 @@ function blankForm() {
   };
 }
 
+/** 同一天、同部番：已有最大同批次数 + 1 */
+function computeBatchSeq(dayValue, partNo, excludeCode = "") {
+  const day = String(dayValue || "").slice(0, 10);
+  const part = String(partNo || "").trim();
+  if (!day || !part) return "";
+  let maxSeq = 0;
+  for (const e of entries.value) {
+    if (excludeCode && e.送检单号 === excludeCode) continue;
+    if (String(e.日期 || e.送检日期 || "").slice(0, 10) !== day) continue;
+    if (String(e.部番 || "").trim() !== part) continue;
+    const n = Number(e.同批送检次数);
+    if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
+  }
+  return maxSeq + 1;
+}
+
+function refreshBatchSeq() {
+  if (!modal.value.open) return;
+  // 编辑且未改日期/部番时保留原值；新增或日期/部番变化时重算
+  form.value.同批送检次数 = computeBatchSeq(
+    form.value.日期,
+    form.value.部番,
+    modal.value.id || "",
+  );
+}
+
 function applyLookupsFromModel() {
   const model = String(form.value.机种 || "").trim();
   const part = String(form.value.部番 || "").trim();
@@ -408,6 +523,7 @@ async function onPartNoChange() {
   const part = String(form.value.部番 || "").trim();
   form.value.机种 = part.split("-")[0];
   applyLookupsFromModel();
+  refreshBatchSeq();
   if (!part || !props.workbookId) return;
   try {
     const res = await authFetch(
@@ -426,6 +542,13 @@ watch(
     const headMap = lookups.value.section_heads || {};
     const key = String(unit || "").trim();
     if (key && headMap[key]) form.value.课室负责人 = headMap[key];
+  },
+);
+
+watch(
+  () => form.value.日期,
+  () => {
+    if (modal.value.open) refreshBatchSeq();
   },
 );
 
@@ -455,6 +578,7 @@ function openNew() {
   form.value = blankForm();
   if (props.dept) form.value.送检单位 = props.dept;
   modal.value = { open: true, id: "", error: "", version: null };
+  refreshBatchSeq();
 }
 
 function openEdit(entry) {
@@ -463,6 +587,7 @@ function openEdit(entry) {
   for (const key of Object.keys(next)) {
     if (entry[key] !== undefined && entry[key] !== null) next[key] = entry[key];
   }
+  if (entry.送检日期 && !next.日期) next.日期 = entry.送检日期;
   if (typeof next.日期 === "string" && next.日期.includes(" ")) {
     next.日期 = next.日期.replace(" ", "T");
   }

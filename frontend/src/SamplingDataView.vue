@@ -3,7 +3,7 @@
     <div class="view-head">
       <div>
         <h2>抽检数据 · {{ totalRecords }} 行</h2>
-        <p class="hint">宽表格式，与 Excel 导出「抽检数据」一致。首列为日期（原 Excel 列名「抽检状况」）。</p>
+        <p class="hint">宽表格式，与 Excel 导出「抽检数据」一致。导出按下方日期筛选，不会再整月全倒。首列为日期（原 Excel 列名「抽检状况」）。</p>
       </div>
       <div class="head-actions">
         <button
@@ -37,9 +37,29 @@
           </div>
         </div>
         <button type="button" class="ghost-btn" :disabled="exporting" @click="exportSheet">
-          {{ exporting ? '导出中…' : '导出' }}
+          {{ exporting ? '导出中…' : '导出当前筛选' }}
         </button>
       </div>
+    </div>
+
+    <div class="date-filter-bar">
+      <div class="date-presets">
+        <button
+          v-for="opt in datePresets"
+          :key="opt.key"
+          type="button"
+          class="preset-btn"
+          :class="{ active: datePreset === opt.key }"
+          @click="applyDatePreset(opt.key)"
+        >{{ opt.label }}</button>
+      </div>
+      <label class="date-range">
+        日期
+        <input v-model="dateFrom" type="date" @change="onDateManualChange" />
+        <span>—</span>
+        <input v-model="dateTo" type="date" @change="onDateManualChange" />
+      </label>
+      <button type="button" class="ghost-btn" :disabled="loading" @click="reloadFromFirstPage">查询</button>
     </div>
 
     <div v-if="loading" class="loading">加载中…</div>
@@ -179,6 +199,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { authFetch, authDownload } from "./api.js";
 import DateField from "./DateField.vue";
+import { yesterdayDateString, todayDateString } from "./dateField.js";
 import {
   formatSamplingDateLabel,
   isoToCnDate,
@@ -203,6 +224,16 @@ const tableData = ref([]);
 const totalRecords = ref(0);
 const currentPage = ref(1);
 const pageSize = ref(50);
+const dateFrom = ref(yesterdayDateString());
+const dateTo = ref(yesterdayDateString());
+const datePreset = ref("yesterday");
+const datePresets = [
+  { key: "yesterday", label: "昨天" },
+  { key: "today", label: "今天" },
+  { key: "7d", label: "近7天" },
+  { key: "month", label: "本月" },
+  { key: "all", label: "不限" },
+];
 const pageSizeOptions = [20, 50, 100, 200, 500];
 const sortField = ref("抽检状况");
 const sortDirection = ref("desc");
@@ -450,12 +481,59 @@ function formatCell(v, col = "") {
   return String(v);
 }
 
+function buildDateFilters() {
+  if (!dateFrom.value && !dateTo.value) return {};
+  return {
+    [rowKey]: {
+      type: "date_range",
+      start: dateFrom.value || undefined,
+      end: dateTo.value || undefined,
+    },
+  };
+}
+
+function applyDatePreset(key) {
+  datePreset.value = key;
+  const today = todayDateString();
+  if (key === "yesterday") {
+    const y = yesterdayDateString();
+    dateFrom.value = y;
+    dateTo.value = y;
+  } else if (key === "today") {
+    dateFrom.value = today;
+    dateTo.value = today;
+  } else if (key === "7d") {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    dateFrom.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    dateTo.value = today;
+  } else if (key === "month") {
+    const now = new Date();
+    dateFrom.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    dateTo.value = today;
+  } else {
+    dateFrom.value = "";
+    dateTo.value = "";
+  }
+  reloadFromFirstPage();
+}
+
+function onDateManualChange() {
+  datePreset.value = "";
+}
+
+function reloadFromFirstPage() {
+  currentPage.value = 1;
+  clearRowSelection();
+  loadData();
+}
+
 async function loadData() {
   if (!props.workbookId) return;
   loading.value = true;
   const queryBody = {
     sheet: sheetName.value,
-    filters: {},
+    filters: buildDateFilters(),
     offset: (currentPage.value - 1) * pageSize.value,
     limit: pageSize.value,
     sort: sortField.value ? { field: sortField.value, direction: sortDirection.value } : null,
@@ -647,15 +725,26 @@ async function deleteSelectedRows() {
 }
 
 async function exportSheet() {
+  if (!dateFrom.value && !dateTo.value) {
+    const ok = confirm("未选日期将导出全部抽检数据（可能跨好几个月）。\n建议先点「昨天」再导出。是否仍要全部导出？");
+    if (!ok) return;
+  }
   exporting.value = true;
   try {
     const title = props.spec?.title || "抽检数据";
+    const from = dateFrom.value || "all";
+    const to = dateTo.value || from;
+    const filters = buildDateFilters();
     await authDownload(
       `/api/workbooks/${props.workbookId}/export`,
-      `${title}-抽检数据.xlsx`,
+      `${title}-抽检数据_${from}_${to}.xlsx`,
       {
         method: "POST",
-        body: JSON.stringify({ mode: "sheet", sheet: sheetName.value }),
+        body: JSON.stringify({
+          mode: Object.keys(filters).length ? "filtered" : "sheet",
+          sheet: sheetName.value,
+          filters,
+        }),
         timeout: 120000,
       }
     );
@@ -676,6 +765,45 @@ async function exportSheet() {
   gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 12px;
+}
+.date-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #f7f9fc;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.date-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.preset-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.preset-btn.active,
+.preset-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.date-range input[type="date"] {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
 }
 .view-head h2 { margin: 0 0 4px; font-size: 16px; }
 .hint { margin: 0; font-size: 12px; color: var(--muted); }

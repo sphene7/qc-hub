@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -274,9 +274,11 @@ def _inspection_dict(c: SamplingInspection, sub: SamplingSubmission) -> dict[str
 
 def _submission_dict(s: SamplingSubmission) -> dict[str, Any]:
     inspections = sorted(s.inspections or [], key=lambda c: c.code)
+    day = _iso(s.submit_date)
     return {
         "送检单号": s.code,
-        "日期": _iso(s.submit_date),
+        "日期": day,  # 兼容旧字段名
+        "送检日期": day,
         "月份": s.month_label or _month_label(s.submit_date),
         "送检类型": s.submit_type or "",
         "部番": s.part_no or s.model or "",
@@ -290,12 +292,53 @@ def _submission_dict(s: SamplingSubmission) -> dict[str, Any]:
         "层别备注": s.remark or "",
         "确认者": s.confirmer or "",
         "课室负责人": s.room_owner or "",
+        "完成日期": _iso(s.completed_at) if s.completed_at else "",
         "版本": s.version,
         "登记人": "",
         "登记时间": _iso(s.created_at),
         "抽检": [_inspection_dict(c, s) for c in inspections],
         "异常总数": sum(len(c.defects or []) for c in inspections),
     }
+
+
+def _day_bounds(day: datetime) -> tuple[datetime, datetime]:
+    start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start, start + timedelta(days=1)
+
+
+def _next_batch_seq(
+    db: Session,
+    project_id: int,
+    part_no: str,
+    day: datetime,
+    exclude_id: int | None = None,
+) -> int:
+    """同一天、同部番的送检次数：已有最大值 + 1（至少为 1）。"""
+    start, end = _day_bounds(day)
+    q = db.query(func.coalesce(func.max(SamplingSubmission.batch_seq), 0)).filter(
+        SamplingSubmission.project_id == project_id,
+        SamplingSubmission.part_no == part_no,
+        SamplingSubmission.deleted_at.is_(None),
+        SamplingSubmission.submit_date >= start,
+        SamplingSubmission.submit_date < end,
+    )
+    if exclude_id is not None:
+        q = q.filter(SamplingSubmission.id != exclude_id)
+    return int(q.scalar() or 0) + 1
+
+
+def _sync_completion(sub: SamplingSubmission) -> None:
+    """判定合格（有抽检且无不良）后写入完成日期；否则清空。"""
+    inspections = list(sub.inspections or [])
+    if not inspections:
+        sub.completed_at = None
+        return
+    has_defect = any(len(c.defects or []) > 0 for c in inspections)
+    if has_defect:
+        sub.completed_at = None
+        return
+    if sub.completed_at is None:
+        sub.completed_at = _now()
 
 
 def load_tree(item: dict[str, Any], db: Session, dept: str = "") -> list[dict[str, Any]]:
@@ -519,7 +562,11 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "", dep
     project = _project(db, wid)
     if project is None:
         raise ValueError("项目不存在")
-    day = _datetime(payload.get("日期")) or _now().replace(second=0, microsecond=0)
+    day = (
+        _datetime(payload.get("送检日期"))
+        or _datetime(payload.get("日期"))
+        or _now().replace(second=0, microsecond=0)
+    )
     part_no = _text(payload.get("部番")) or _text(payload.get("机种"))
     if not part_no:
         raise ValueError("请填写部番")
@@ -529,6 +576,9 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "", dep
         raise ValueError("请填写送检数量")
 
     department = dept or _text(payload.get("送检单位"))
+    batch_seq = _int(payload.get("同批送检次数"))
+    if batch_seq is None:
+        batch_seq = _next_batch_seq(db, project.id, part_no, day)
     record = SamplingSubmission(
         project_id=project.id,
         code=_next_code(db, day),
@@ -541,7 +591,7 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "", dep
         business_unit=_text(payload.get("事业部")) or resolve_business_unit(db, part_no),
         submit_type=_text(payload.get("送检类型")) or "正常送检",
         qty=qty,
-        batch_seq=_int(payload.get("同批送检次数")),
+        batch_seq=batch_seq,
         urgent=_text(payload.get("是否紧急出货")),
         remark=_text(payload.get("层别备注")),
         confirmer=_text(payload.get("确认者")),
@@ -581,11 +631,17 @@ def update_submission(wid, item, sid, payload, user_id, db, user_label: str = ""
     if expected_version is not None and int(expected_version) != int(record.version or 1):
         raise VersionConflict("这张送检单已被其他人修改，请刷新后再试")
 
-    day = _datetime(payload.get("日期")) or record.submit_date
+    day = (
+        _datetime(payload.get("送检日期"))
+        or _datetime(payload.get("日期"))
+        or record.submit_date
+    )
     part_no = _text(payload.get("部番")) or _text(payload.get("机种")) or _text(record.part_no)
     if not part_no:
         raise ValueError("请填写部番")
     model = part_no.split("-", 1)[0]
+    day_changed = _iso(day)[:10] != _iso(record.submit_date)[:10]
+    part_changed = part_no != _text(record.part_no)
     record.submit_date = day
     record.month_label = _month_label(day)
     record.part_no = part_no
@@ -595,11 +651,16 @@ def update_submission(wid, item, sid, payload, user_id, db, user_label: str = ""
     perms_bu = _text(payload.get("事业部"))
     if perms_bu:
         record.business_unit = perms_bu
-    elif not _text(record.business_unit) or _text(record.part_no) != part_no:
+    elif not _text(record.business_unit) or part_changed:
         record.business_unit = resolve_business_unit(db, part_no)
     record.submit_type = _text(payload.get("送检类型")) or record.submit_type or "正常送检"
     record.qty = _int(payload.get("送检数量"))
-    record.batch_seq = _int(payload.get("同批送检次数"))
+    batch_seq = _int(payload.get("同批送检次数"))
+    if day_changed or part_changed:
+        batch_seq = _next_batch_seq(db, project.id, part_no, day, exclude_id=record.id)
+    elif batch_seq is None:
+        batch_seq = record.batch_seq
+    record.batch_seq = batch_seq
     record.urgent = _text(payload.get("是否紧急出货"))
     record.remark = _text(payload.get("层别备注"))
     record.confirmer = _text(payload.get("确认者"))
@@ -690,6 +751,8 @@ def add_inspection(wid, item, sid, payload, user_id, db, user_label: str = "") -
     )
     db.add(inspection)
     db.flush()
+    db.refresh(sub)
+    _sync_completion(sub)
     _audit(db, user_id, "sampling_inspection", inspection.code, "create", {"inspection": inspection.code})
     db.commit()
     _sync_oqc(db, item, project, sub)
@@ -740,6 +803,9 @@ def update_inspection(wid, item, iid, payload, user_id, db, user_label: str = ""
     inspection.version = int(inspection.version or 1) + 1
     inspection.updated_at = _now()
     inspection.defects = defects
+    db.flush()
+    db.refresh(sub)
+    _sync_completion(sub)
     _audit(db, user_id, "sampling_inspection", inspection.code, "update", {"inspection": inspection.code})
     db.commit()
     _sync_oqc(db, item, project, sub)
@@ -762,6 +828,9 @@ def delete_inspection(wid, item, iid, user_id, db) -> None:
     db.query(SamplingException).filter(SamplingException.inspection_id == inspection.id).delete()
     db.query(SamplingDefect).filter(SamplingDefect.inspection_id == inspection.id).delete()
     db.delete(inspection)
+    db.flush()
+    db.refresh(sub)
+    _sync_completion(sub)
     _audit(db, user_id, "sampling_inspection", iid, "delete", {"inspection": iid})
     db.commit()
     _sync_oqc(db, item, project, sub)
