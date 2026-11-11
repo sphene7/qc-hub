@@ -10,6 +10,15 @@
       <button v-if="canInspect" type="button" class="smp-btn smp-btn-primary" @click="openNew()">
         + 登记抽检
       </button>
+      <button
+        type="button"
+        class="smp-btn smp-btn-ghost"
+        :disabled="loading || exporting || !filtered.length"
+        title="按当前筛选条件导出（含日期）"
+        @click="exportFiltered"
+      >
+        {{ exporting ? '导出中…' : '导出当前筛选' }}
+      </button>
       <button type="button" class="smp-btn smp-btn-ghost" :disabled="loading" @click="load">刷新</button>
     </div>
 
@@ -303,11 +312,13 @@ import { useRoute, useRouter } from "vue-router";
 import {
   addInspection,
   deleteInspection,
+  downloadCsv,
   flattenInspections,
   inRange,
   loadSampling,
   matchKeyword,
   meName,
+  splitDateTime,
   todayStr,
   updateInspection,
 } from "./samplingApi.js";
@@ -440,6 +451,7 @@ const presetOptions = [
   { key: "7d", label: "近7天" },
   { key: "month", label: "本月" },
 ];
+const exporting = ref(false);
 
 const rows = computed(() => flattenInspections(entries.value));
 const isNg = (judge) => String(judge || "").toUpperCase().startsWith("NG");
@@ -467,6 +479,57 @@ function applyPreset(key) {
   } else {
     filters.value.from = "";
     filters.value.to = "";
+  }
+}
+
+function exportFiltered() {
+  const list = filtered.value;
+  if (!list.length) {
+    alert("当前筛选没有可导出的抽检记录");
+    return;
+  }
+  if (!filters.value.from && !filters.value.to) {
+    const ok = confirm(`未选日期，将导出当前筛选的全部 ${list.length} 条，是否继续？`);
+    if (!ok) return;
+  }
+  exporting.value = true;
+  try {
+    const headers = [
+      "抽检单号", "日期", "时间", "部番", "机种", "事业部",
+      "外观抽检数量", "机能抽检数量", "不良数量", "不良率",
+      "抽检批", "合格批", "合格批率", "判定",
+      "不良属性", "不良现象", "不良位置", "数量", "检验员", "登记人",
+    ];
+    const data = list.map((c) => {
+      const dt = splitDateTime(c.日期);
+      return [
+        c.抽检单号,
+        dt.date,
+        dt.time,
+        c.部番 || c.机种,
+        c.机种,
+        c.事业部,
+        c.外观抽检数量,
+        c.机能抽检数量,
+        c.不良数量,
+        rateText(c.不良率),
+        c.抽检批 ? 1 : 0,
+        c.合格批 ? 1 : 0,
+        rateText(c.合格批率),
+        c.判定,
+        c.不良属性,
+        c.现象,
+        c.不良位置,
+        c.数量,
+        c.检验员,
+        c.登记人,
+      ];
+    });
+    const from = filters.value.from || "all";
+    const to = filters.value.to || from;
+    downloadCsv(`抽检记录_${from}_${to}.csv`, headers, data);
+  } finally {
+    exporting.value = false;
   }
 }
 

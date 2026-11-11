@@ -253,10 +253,12 @@ import {
   createSubmission,
   defectCount,
   deleteSubmission,
+  downloadCsv,
   inRange,
   loadSampling,
   matchKeyword,
   meName,
+  splitDateTime,
   submissionStatus,
   todayStr,
   updateSubmission,
@@ -335,12 +337,6 @@ function applyPreset(key) {
   }
 }
 
-function csvEscape(value) {
-  const text = value == null ? "" : String(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-}
-
 function exportFiltered() {
   const rows = filtered.value;
   if (!rows.length) {
@@ -354,15 +350,17 @@ function exportFiltered() {
   exporting.value = true;
   try {
     const headers = [
-      "送检单号", "送检日期", "送检类型", "部番", "机种", "事业部", "送检单位",
+      "送检单号", "送检日期", "送检时间", "送检类型", "部番", "机种", "事业部", "送检单位",
       "送检数量", "同批送检次数", "是否紧急出货", "确认者", "课室负责人",
-      "层别备注", "抽检人数", "异常", "状态", "完成日期", "登记人",
+      "层别备注", "抽检人数", "异常", "状态", "完成日期", "完成时间", "登记人",
     ];
-    const lines = [headers.join(",")];
-    for (const e of rows) {
-      lines.push([
+    const data = rows.map((e) => {
+      const submit = splitDateTime(e.送检日期 || e.日期);
+      const done = splitDateTime(e.完成日期);
+      return [
         e.送检单号,
-        String(e.送检日期 || e.日期 || "").replace("T", " ").slice(0, 16),
+        submit.date,
+        submit.time,
         e.送检类型,
         e.部番,
         e.机种,
@@ -377,20 +375,14 @@ function exportFiltered() {
         (e.抽检 || []).length,
         defectCount(e),
         statusOf(e)?.label || statusOf(e),
-        e.完成日期,
+        done.date,
+        done.time,
         e.登记人,
-      ].map(csvEscape).join(","));
-    }
-    const bom = "\uFEFF";
-    const blob = new Blob([bom + lines.join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+      ];
+    });
     const from = filters.value.from || "all";
     const to = filters.value.to || from;
-    a.href = url;
-    a.download = `送检记录_${from}_${to}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`送检记录_${from}_${to}.csv`, headers, data);
   } finally {
     exporting.value = false;
   }

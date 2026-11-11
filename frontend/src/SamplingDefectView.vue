@@ -7,6 +7,15 @@
         <span class="smp-stat">已结案 <strong>{{ closedCount }}</strong> 条</span>
       </div>
       <span class="smp-spacer"></span>
+      <button
+        type="button"
+        class="smp-btn smp-btn-ghost"
+        :disabled="loading || exporting || !filtered.length"
+        title="按当前筛选条件导出（含日期）"
+        @click="exportFiltered"
+      >
+        {{ exporting ? '导出中…' : '导出当前筛选' }}
+      </button>
       <button type="button" class="smp-btn smp-btn-ghost" :disabled="loading" @click="load">刷新</button>
     </div>
 
@@ -247,12 +256,15 @@ import ComboField from "./ComboField.vue";
 import RichTextField from "./RichTextField.vue";
 import {
   deleteException,
+  downloadCsv,
   flattenInspections,
   inRange,
   loadSampling,
   matchKeyword,
   meName,
+  plainText,
   saveException,
+  splitDateTime,
 } from "./samplingApi.js";
 
 const props = defineProps({
@@ -287,6 +299,7 @@ const presetOptions = [
   { key: "7d", label: "近7天" },
   { key: "month", label: "本月" },
 ];
+const exporting = ref(false);
 
 const rows = computed(() => flattenInspections(entries.value));
 const isNg = (judge) => String(judge || "").toUpperCase().startsWith("NG");
@@ -320,6 +333,64 @@ function applyPreset(key) {
   } else {
     filters.value.from = "";
     filters.value.to = "";
+  }
+}
+
+function exportFiltered() {
+  const list = filtered.value;
+  if (!list.length) {
+    alert("当前筛选没有可导出的异常记录");
+    return;
+  }
+  if (!filters.value.from && !filters.value.to) {
+    const ok = confirm(`未选日期，将导出当前筛选的全部 ${list.length} 条，是否继续？`);
+    if (!ok) return;
+  }
+  exporting.value = true;
+  try {
+    const headers = [
+      "抽检单号", "日期", "时间", "部番", "机种", "事业部", "检验员", "判定", "不良数量",
+      "OA单号", "指定质控公司", "责任单位", "责任人", "确认者", "课室负责人",
+      "责任课级负责人", "品质工程师", "结案日期", "结案时间", "结案天数", "状态",
+      "临时对策", "根因分析", "永久对策", "改善后确认",
+    ];
+    const data = list.map((c) => {
+      const dt = splitDateTime(c.日期);
+      const ex = c.异常处理 || {};
+      const close = splitDateTime(ex.结案日期);
+      return [
+        c.抽检单号,
+        dt.date,
+        dt.time,
+        c.部番 || c.机种,
+        c.机种,
+        c.事业部,
+        c.检验员,
+        c.判定,
+        c.不良数量,
+        ex.OA单号,
+        ex.指定质控公司,
+        ex.责任单位,
+        ex.责任人,
+        ex.确认者,
+        ex.课室负责人,
+        ex.责任课级负责人,
+        ex.品质工程师,
+        close.date,
+        close.time,
+        ex.结案天数,
+        statusOf(c).label,
+        plainText(ex.临时对策),
+        plainText(ex.根因分析),
+        plainText(ex.永久对策),
+        plainText(ex.改善后确认),
+      ];
+    });
+    const from = filters.value.from || "all";
+    const to = filters.value.to || from;
+    downloadCsv(`异常记录_${from}_${to}.csv`, headers, data);
+  } finally {
+    exporting.value = false;
   }
 }
 
