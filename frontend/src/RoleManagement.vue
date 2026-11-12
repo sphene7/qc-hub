@@ -2,7 +2,7 @@
   <div class="role-page">
     <div class="toolbar">
       <div class="toolbar-left">
-        <span class="hint">角色定义一次，用户在「权限管理」里按项目套用即可。</span>
+        <span class="hint">在这里配置权限点；去「权限管理」给用户按业务模块分配角色即可。</span>
       </div>
       <div class="toolbar-right">
         <button class="btn-primary" @click="openCreate">+ 新增角色</button>
@@ -65,7 +65,11 @@
           <div class="perm-box">
             <div class="perm-title">权限点</div>
             <label v-for="p in permFields" :key="p.key" class="perm-row">
-              <input v-model="form.permissions[p.key]" type="checkbox" />
+              <input
+                type="checkbox"
+                :checked="permChecked(p.key)"
+                @change="setPerm(p.key, $event.target.checked)"
+              />
               <span>{{ p.label }}</span>
               <em>{{ p.desc }}</em>
             </label>
@@ -95,27 +99,41 @@ const modal = ref({ open: false, id: null, error: "" });
 const form = ref(blankForm());
 
 const permFields = [
-  { key: "read", label: "查看", desc: "看列表与详情" },
-  { key: "submit", label: "送检", desc: "新增/修改送检单" },
-  { key: "inspect", label: "抽检", desc: "登记抽检与不良" },
-  { key: "handle", label: "异常", desc: "OA/责任/对策/结案" },
-  { key: "delete", label: "删除", desc: "删除记录" },
-  { key: "create", label: "通用新增", desc: "巡检/客诉等模块" },
-  { key: "update", label: "通用修改", desc: "巡检/客诉等模块" },
+  { key: "read", label: "查看", desc: "看列表与详情（通用）" },
+  { key: "edit", label: "编辑", desc: "巡检/客诉等：新增与修改" },
+  { key: "delete", label: "删除", desc: "删除记录（通用）" },
+  { key: "submit", label: "送检", desc: "仅产品抽检：送检登记" },
+  { key: "inspect", label: "抽检", desc: "仅产品抽检：抽检登记" },
+  { key: "handle", label: "异常", desc: "仅产品抽检：异常处理" },
 ];
 
 function blankForm() {
   return {
     name: "",
     description: "",
-    permissions: { read: true, create: false, update: false, delete: false, submit: false, inspect: false, handle: false },
+    permissions: {
+      read: true,
+      edit: false,
+      create: false,
+      update: false,
+      delete: false,
+      submit: false,
+      inspect: false,
+      handle: false,
+    },
   };
 }
 
 function summary(role) {
   const p = role.permissions || {};
-  const map = [["submit", "送检"], ["inspect", "抽检"], ["handle", "异常"], ["delete", "删除"]];
-  return map.filter(([k]) => p[k]).map(([, label]) => label);
+  const chips = [];
+  if (p.read) chips.push("查看");
+  if (p.create || p.update) chips.push("编辑");
+  if (p.delete) chips.push("删除");
+  if (p.submit) chips.push("送检");
+  if (p.inspect) chips.push("抽检");
+  if (p.handle) chips.push("异常");
+  return chips;
 }
 
 async function readJson(res) {
@@ -154,16 +172,41 @@ function openCreate() {
 }
 
 function openEdit(role) {
+  const p = role.permissions || {};
   form.value = {
     name: role.name,
     description: role.description || "",
     permissions: {
-      read: true, create: false, update: false, delete: false,
-      submit: false, inspect: false, handle: false,
-      ...(role.permissions || {}),
+      read: true,
+      edit: !!(p.create || p.update),
+      create: !!p.create,
+      update: !!p.update,
+      delete: !!p.delete,
+      submit: !!p.submit,
+      inspect: !!p.inspect,
+      handle: !!p.handle,
     },
   };
   modal.value = { open: true, id: role.id, error: "" };
+}
+
+function permChecked(key) {
+  const p = form.value.permissions;
+  if (key === "edit") return !!(p.edit || p.create || p.update);
+  return !!p[key];
+}
+
+function setPerm(key, checked) {
+  if (key === "edit") {
+    form.value.permissions.edit = checked;
+    form.value.permissions.create = checked;
+    form.value.permissions.update = checked;
+    return;
+  }
+  form.value.permissions[key] = checked;
+  if (key !== "read" && checked) {
+    form.value.permissions.read = true;
+  }
 }
 
 function closeModal() {
@@ -174,10 +217,20 @@ async function save() {
   saving.value = true;
   modal.value.error = "";
   try {
+    const p = form.value.permissions;
+    const editOn = !!(p.edit || p.create || p.update);
     const payload = {
       name: form.value.name,
       description: form.value.description,
-      permissions: { ...form.value.permissions },
+      permissions: {
+        read: !!p.read || editOn || !!p.delete || !!p.submit || !!p.inspect || !!p.handle,
+        create: editOn,
+        update: editOn,
+        delete: !!p.delete,
+        submit: !!p.submit,
+        inspect: !!p.inspect,
+        handle: !!p.handle,
+      },
     };
     const url = modal.value.id ? `/api/admin/roles/${modal.value.id}` : "/api/admin/roles";
     const res = await authFetch(url, {

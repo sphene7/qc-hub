@@ -800,6 +800,27 @@ def admin_list_permissions(current_user: User = Depends(get_current_user), db: S
     projects = db.query(Project).order_by(Project.name).all()
     grants = list_all_project_permissions(db)
 
+    # 业务模块配置 → project_id，用于权限页区分「抽检三表」等专用列
+    module_by_wid: dict[str, str] = {}
+    for mod in get_modules() or []:
+        wid = str((mod or {}).get("project_id") or "").strip()
+        key = str((mod or {}).get("key") or "").strip()
+        if wid and key:
+            module_by_wid[wid] = key
+
+    def _module_key_for(project: Project) -> str:
+        mapped = module_by_wid.get(project.project_id or "")
+        if mapped:
+            return mapped
+        name = project.name or ""
+        if "抽检" in name:
+            return "sampling"
+        if "客诉" in name:
+            return "complaint"
+        if "巡检" in name:
+            return "inspection"
+        return ""
+
     return {
         "users": [
             {
@@ -816,6 +837,7 @@ def admin_list_permissions(current_user: User = Depends(get_current_user), db: S
                 "id": p.project_id,
                 "name": p.name,
                 "owner_id": p.owner_id,
+                "module_key": _module_key_for(p),
             }
             for p in projects
         ],
@@ -849,6 +871,25 @@ def admin_upsert_permission(
         raise HTTPException(400, "无法设置权限（用户/模块不存在，或该用户为模块所有者）")
 
     return {"message": "权限已保存"}
+
+
+@app.delete("/api/admin/permissions")
+def admin_delete_permission(
+    user_id: int,
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """移除用户在某业务模块上的授权（取消分配）。"""
+    if current_user.role != "super_admin":
+        raise HTTPException(403, "需要超级管理员权限")
+    wid = (project_id or "").strip()
+    if not user_id or not wid:
+        raise HTTPException(400, "缺少 user_id 或 project_id")
+    ok = remove_project_member(db, wid, user_id)
+    if not ok:
+        raise HTTPException(404, "未找到该授权记录（可能已移除，或用户为模块所有者）")
+    return {"message": "权限已移除"}
 
 
 # ==================== 部门 / 课室管理 ====================

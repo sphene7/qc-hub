@@ -76,6 +76,7 @@
               <th>部番</th>
               <th>机种</th>
               <th>事业部</th>
+              <th class="num">送检数量</th>
               <th class="num">外观抽检数量</th>
               <th class="num">机能抽检数量</th>
               <th class="num">不良数量</th>
@@ -93,9 +94,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="20"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="21"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="20">
+              <td colspan="21">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">🔎</span>
                   没有符合条件的抽检记录
@@ -115,6 +116,7 @@
                 <td class="mono">{{ c.部番 || c.机种 || "-" }}</td>
                 <td>{{ c.机种 || "-" }}</td>
                 <td>{{ c.事业部 || "-" }}</td>
+                <td class="num">{{ c.送检数量 ?? "-" }}</td>
                 <td class="num">{{ c.外观抽检数量 ?? "-" }}</td>
                 <td class="num">{{ c.机能抽检数量 ?? "-" }}</td>
                 <td class="num">{{ c.不良数量 ?? "-" }}</td>
@@ -479,7 +481,7 @@ function exportFiltered() {
   exporting.value = true;
   try {
     const headers = [
-      "抽检单号", "日期", "时间", "部番", "机种", "事业部",
+      "抽检单号", "日期", "时间", "部番", "机种", "事业部", "送检数量",
       "外观抽检数量", "机能抽检数量", "不良数量", "不良率",
       "抽检批", "合格批", "合格批率", "判定",
       "不良属性", "不良现象", "不良位置", "数量", "检验员", "登记人",
@@ -493,6 +495,7 @@ function exportFiltered() {
         c.部番 || c.机种,
         c.机种,
         c.事业部,
+        c.送检数量,
         c.外观抽检数量,
         c.机能抽检数量,
         c.不良数量,
