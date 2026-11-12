@@ -28,6 +28,8 @@ from .models import (
     AuditLog,
     ModelBusinessUnit,
     Project,
+    ProjectMember,
+    Role,
     SamplingDefect,
     SamplingException,
     SamplingInspection,
@@ -272,6 +274,7 @@ def _inspection_dict(c: SamplingInspection, sub: SamplingSubmission) -> dict[str
         "日期": _iso(sub.submit_date),
         "部番": sub.part_no or sub.model or "",
         "机种": sub.model or "",
+        "送检类型": sub.submit_type or "",
         "事业部": sub.business_unit or "",
         "送检单位": sub.department or "",
         "检验员": c.inspector or "",
@@ -555,6 +558,30 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         .all()
         if _text(r.name)
     ]
+    # 权限管理里分配了「检验员」角色的用户，也应出现在抽检登记下拉中
+    role_inspector_names: list[str] = []
+    inspector_roles = db.query(Role).filter(Role.name == "检验员").all()
+    role_ids = [r.id for r in inspector_roles]
+    if role_ids:
+        member_users = (
+            db.query(User)
+            .join(ProjectMember, ProjectMember.user_id == User.id)
+            .filter(
+                ProjectMember.project_id == project.id,
+                ProjectMember.role_id.in_(role_ids),
+            )
+            .all()
+        )
+        for u in member_users:
+            display = _text(u.full_name) or _text(u.username)
+            if display:
+                role_inspector_names.append(display)
+
+    # 下拉名单：类别管理固定名单（保序）+ 权限「检验员」；不含历史自由输入
+    roster_inspectors: list[str] = []
+    for name in managed_inspectors + role_inspector_names:
+        if name and name not in roster_inspectors:
+            roster_inspectors.append(name)
     history_inspectors = []
     for name in inspectors:
         history_inspectors.extend(_split_parts(name))
@@ -565,7 +592,7 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         "送检单位": uniq(departments_used + departments + sections_from_code),
         "事业部": uniq(units_used + bu_from_map),
         "送检类型": uniq(list(SUBMIT_TYPE_OPTIONS) + types_from_history),
-        "检验员": managed_inspectors or uniq(history_inspectors),
+        "检验员": roster_inspectors or uniq(history_inspectors),
         "不良位置": uniq(
             [m for minors in minors_by_cat.values() for m in minors] + locations
         ),
@@ -582,7 +609,7 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
             "submit_types": list(SUBMIT_TYPE_OPTIONS),
             "defect_categories": categories,
             "defect_minors_by_category": minors_by_cat,
-            "inspectors": managed_inspectors,
+            "inspectors": roster_inspectors,
         },
     }
 

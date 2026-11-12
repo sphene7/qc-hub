@@ -75,6 +75,7 @@
               <th>日期</th>
               <th>部番</th>
               <th>机种</th>
+              <th>送检类型</th>
               <th>事业部</th>
               <th class="num">送检数量</th>
               <th class="num">外观抽检数量</th>
@@ -94,9 +95,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="21"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="22"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="21">
+              <td colspan="22">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">🔎</span>
                   没有符合条件的抽检记录
@@ -115,6 +116,7 @@
                 <td>{{ c.日期 }}</td>
                 <td class="mono">{{ c.部番 || c.机种 || "-" }}</td>
                 <td>{{ c.机种 || "-" }}</td>
+                <td>{{ c.送检类型 || "-" }}</td>
                 <td>{{ c.事业部 || "-" }}</td>
                 <td class="num">{{ c.送检数量 ?? "-" }}</td>
                 <td class="num">{{ c.外观抽检数量 ?? "-" }}</td>
@@ -189,16 +191,11 @@
                     :key="ii"
                     class="smp-inspector-pick"
                   >
-                    <select v-model="block.inspectors[ii]">
-                      <option value="">— 选择检验员 —</option>
-                      <option
-                        v-for="o in inspectorOptionsFor(block.inspectors[ii], block, ii)"
-                        :key="o"
-                        :value="o"
-                      >
-                        {{ o }}
-                      </option>
-                    </select>
+                    <ComboField
+                      v-model="block.inspectors[ii]"
+                      :options="inspectorOptionsFor(block.inspectors[ii], block, ii)"
+                      placeholder="选择或输入检验员"
+                    />
                     <button
                       v-if="ii === block.inspectors.length - 1"
                       type="button"
@@ -311,6 +308,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import ComboField from "./ComboField.vue";
 import {
   addInspection,
   deleteInspection,
@@ -355,7 +353,10 @@ const defectCategories = computed(() => {
 const minorsByCategory = computed(
   () => defectLookups.value.defect_minors_by_category || {},
 );
-/** 类别管理第六页维护的检验员名单；无数据时回退 options.检验员 */
+/**
+ * 检验员下拉：类别管理名单 + 权限管理里「检验员」角色用户。
+ * 手输姓名只写入本条记录，不回写名单（ComboField 不改 options）。
+ */
 const inspectorRoster = computed(() => {
   const fromLookup = defectLookups.value.inspectors || [];
   if (fromLookup.length) return uniqOptions(fromLookup);
@@ -381,7 +382,7 @@ function withCurrentOption(list, current) {
   return [cur, ...list];
 }
 
-function inspectorOptionsFor(current, block = null, index = -1) {
+function inspectorOptionsFor(_current, block = null, index = -1) {
   const taken = new Set();
   if (block?.inspectors) {
     block.inspectors.forEach((name, i) => {
@@ -389,8 +390,8 @@ function inspectorOptionsFor(current, block = null, index = -1) {
       if (n && i !== index) taken.add(n);
     });
   }
-  const base = inspectorRoster.value.filter((o) => !taken.has(o));
-  return withCurrentOption(base, current);
+  // 不把当前手输值塞进 options，避免「临时输入」出现在下拉列表
+  return inspectorRoster.value.filter((o) => !taken.has(o));
 }
 
 function splitInspectorNames(value) {
@@ -481,7 +482,7 @@ function exportFiltered() {
   exporting.value = true;
   try {
     const headers = [
-      "抽检单号", "日期", "时间", "部番", "机种", "事业部", "送检数量",
+      "抽检单号", "日期", "时间", "部番", "机种", "送检类型", "事业部", "送检数量",
       "外观抽检数量", "机能抽检数量", "不良数量", "不良率",
       "抽检批", "合格批", "合格批率", "判定",
       "不良属性", "不良现象", "不良位置", "数量", "检验员", "登记人",
@@ -494,6 +495,7 @@ function exportFiltered() {
         dt.time,
         c.部番 || c.机种,
         c.机种,
+        c.送检类型,
         c.事业部,
         c.送检数量,
         c.外观抽检数量,
@@ -527,7 +529,15 @@ const filtered = computed(() =>
     const ng = isNg(c.判定);
     if (filters.value.result === "ok" && ng) return false;
     if (filters.value.result === "ng" && !ng) return false;
-    return matchKeyword(filters.value.keyword, c.抽检单号, c.部番, c.机种, c.检验员, c.现象);
+    return matchKeyword(
+      filters.value.keyword,
+      c.抽检单号,
+      c.部番,
+      c.机种,
+      c.送检类型,
+      c.检验员,
+      c.现象,
+    );
   }),
 );
 const todayMine = computed(() => {
@@ -680,7 +690,7 @@ function removeDefect(bi, i) {
 
 function validateBlockInspectors(block, label = "本组") {
   const names = (block.inspectors || []).map((s) => String(s || "").trim());
-  if (names.some((n) => !n)) throw new Error(`${label}：请选择检验员`);
+  if (names.some((n) => !n)) throw new Error(`${label}：请填写检验员`);
   if (new Set(names).size !== names.length) throw new Error(`${label}：检验员不能重复`);
   return names;
 }
@@ -781,7 +791,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   gap: 6px;
   align-items: center;
 }
-.smp-inspector-pick select {
+.smp-inspector-pick :deep(.combo-field) {
   flex: 1;
   min-width: 0;
   max-width: 280px;

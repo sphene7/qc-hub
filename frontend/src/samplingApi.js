@@ -124,7 +124,10 @@ export function flattenInspections(entries) {
       out.push({
         ...c,
         日期: e.日期,
+        部番: c.部番 || e.部番,
         机种: e.机种,
+        送检类型: c.送检类型 || e.送检类型,
+        事业部: c.事业部 || e.事业部,
         送检单位: e.送检单位,
         送检数量: e.送检数量,
         submission: e,

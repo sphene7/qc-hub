@@ -4,8 +4,9 @@
       <div>
         <h2>权限管理</h2>
         <p class="hint">
-          在此只给用户<strong>按业务模块分配角色</strong>。具体能看、能改、能送检/抽检/异常，请到
-          <strong>角色管理</strong>里配置。抽检模块还可限定「课室」（留空=全部）。
+          在此给用户分配角色；<strong>巡检 / 客诉 / 抽检</strong>三个业务表会<strong>同时生效</strong>
+         （改一行即同步到该用户的另外两张表）。具体权限点请到
+          <strong>角色管理</strong>配置。抽检模块还可限定「课室」（留空=全部）。
           超级管理员与模块所有者默认全部权限。
         </p>
       </div>
@@ -66,7 +67,7 @@
                   v-else
                   class="preset-select"
                   :value="row.role_id || ''"
-                  :disabled="savingKey === rowKey(row)"
+                  :disabled="isSavingUser(row.user_id)"
                   @change="applyRole(row, $event.target.value)"
                 >
                   <option value="">未分配</option>
@@ -88,7 +89,7 @@
                   v-if="isSampling(row) && row.hasGrant && !row.is_owner"
                   class="dept-select"
                   :value="row.permissions.dept || ''"
-                  :disabled="!row.permissions.submit || savingKey === rowKey(row)"
+                  :disabled="!row.permissions.submit || isSavingUser(row.user_id)"
                   @change="setDept(row, $event.target.value)"
                 >
                   <option value="">全部</option>
@@ -105,7 +106,7 @@
                   v-if="!row.is_owner && row.hasGrant"
                   type="button"
                   class="btn-link danger"
-                  :disabled="savingKey === rowKey(row)"
+                  :disabled="isSavingUser(row.user_id)"
                   @click="clearGrant(row)"
                 >
                   取消分配
@@ -131,7 +132,8 @@ const roles = ref([]);
 const departments = ref([]);
 const loading = ref(false);
 const error = ref("");
-const savingKey = ref("");
+/** 正在保存的用户 id；三角色同步分配时整行组一起禁用 */
+const savingUserId = ref(null);
 
 const filterUserId = ref("");
 const filterProjectId = ref("");
@@ -141,6 +143,15 @@ const MODULE_LABELS = {
   complaint: "客诉跟进",
   sampling: "产品抽检",
 };
+
+function isSavingUser(userId) {
+  return savingUserId.value != null && Number(savingUserId.value) === Number(userId);
+}
+
+/** 同一用户在三个业务表上的可分配行（排除所有者） */
+function siblingRows(row) {
+  return allRows.value.filter((r) => r.user_id === row.user_id && !r.is_owner);
+}
 
 const allRows = computed(() => {
   const existing = new Map(grants.value.map((g) => [`${g.user_id}-${g.project_id}`, g]));
@@ -193,10 +204,6 @@ onMounted(() => {
   loadDepartments();
   loadRoles();
 });
-
-function rowKey(row) {
-  return `${row.user_id}-${row.project_id}`;
-}
 
 function isSampling(row) {
   return row?.module_key === "sampling";
@@ -351,35 +358,45 @@ function sanitizeForModule(row, permissions) {
 
 async function applyRole(row, value) {
   const roleId = value ? Number(value) : null;
-  savingKey.value = rowKey(row);
+  const targets = siblingRows(row);
+  savingUserId.value = row.user_id;
   error.value = "";
 
   try {
     if (!roleId) {
-      if (row.hasGrant) {
-        removeLocalGrant(row);
-        await deleteGrant(row);
-      }
+      const toClear = targets.filter((t) => t.hasGrant);
+      for (const t of toClear) removeLocalGrant(t);
+      for (const t of toClear) await deleteGrant(t);
       return;
     }
 
     const role = roles.value.find((r) => r.id === roleId);
     if (!role) throw new Error("角色不存在");
 
-    const next = sanitizeForModule(row, {
-      ...role.permissions,
-      dept: isSampling(row) ? row.permissions.dept || "" : "",
-    });
-    if (!next.read && !next.create && !next.update && !next.delete && !next.submit && !next.inspect && !next.handle) {
-      next.read = true;
+    for (const t of targets) {
+      const next = sanitizeForModule(t, {
+        ...role.permissions,
+        dept: isSampling(t) ? t.permissions.dept || "" : "",
+      });
+      if (
+        !next.read &&
+        !next.create &&
+        !next.update &&
+        !next.delete &&
+        !next.submit &&
+        !next.inspect &&
+        !next.handle
+      ) {
+        next.read = true;
+      }
+      setLocalGrant(t, next, roleId);
+      await saveGrant(t.user_id, t.project_id, next, roleId);
     }
-    setLocalGrant(row, next, roleId);
-    await saveGrant(row.user_id, row.project_id, next, roleId);
   } catch (err) {
     error.value = err.message || String(err);
     await loadAll();
   } finally {
-    savingKey.value = "";
+    savingUserId.value = null;
   }
 }
 
@@ -389,7 +406,7 @@ async function setDept(row, value) {
     ...row.permissions,
     dept: String(value || "").trim(),
   });
-  savingKey.value = rowKey(row);
+  savingUserId.value = row.user_id;
   error.value = "";
   setLocalGrant(row, next, row.role_id);
   try {
@@ -398,27 +415,30 @@ async function setDept(row, value) {
     error.value = err.message || String(err);
     await loadAll();
   } finally {
-    savingKey.value = "";
+    savingUserId.value = null;
   }
 }
 
 async function clearGrant(row) {
-  if (row.is_owner || !row.hasGrant) return;
-  if (!confirm(`确定取消「${row.full_name || row.username}」在「${row.project_name}」的角色分配？`)) {
+  if (row.is_owner) return;
+  const targets = siblingRows(row).filter((t) => t.hasGrant);
+  if (!targets.length) return;
+  const name = row.full_name || row.username;
+  if (!confirm(`确定取消「${name}」在巡检 / 客诉 / 抽检三个业务表上的角色分配？`)) {
     return;
   }
-  savingKey.value = rowKey(row);
+  savingUserId.value = row.user_id;
   error.value = "";
   const snapshot = grants.value.slice();
-  removeLocalGrant(row);
+  for (const t of targets) removeLocalGrant(t);
   try {
-    await deleteGrant(row);
+    for (const t of targets) await deleteGrant(t);
   } catch (err) {
     grants.value = snapshot;
     error.value = err.message || String(err);
     await loadAll();
   } finally {
-    savingKey.value = "";
+    savingUserId.value = null;
   }
 }
 </script>
