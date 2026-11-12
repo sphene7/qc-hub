@@ -556,8 +556,8 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         if _text(r.name)
     ]
     history_inspectors = []
-    for c in inspections:
-        history_inspectors.extend(_split_parts(c.inspector))
+    for name in inspectors:
+        history_inspectors.extend(_split_parts(name))
 
     return {
         "部番": uniq(part_nos + models_from_code + part_numbers),
