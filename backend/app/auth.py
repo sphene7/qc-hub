@@ -6,7 +6,7 @@ import jwt
 import hashlib
 from datetime import datetime, timedelta
 from typing import Any, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from app.models import User, Project, ProjectMember, Role
 from dotenv import load_dotenv
 
@@ -228,52 +228,111 @@ def check_project_permission(
     return False
 
 
+def _project_query(db: Session):
+    """列表不读取整本工作簿 spec。"""
+    return db.query(Project).options(defer(Project.spec), defer(Project.integration_config))
+
+
 def get_user_projects(db: Session, user_id: int) -> list:
     """Get all projects accessible to user."""
     user = get_user_by_id(db, user_id)
     if not user:
         return []
-    
-    # Super admins see all projects
+
     if user.role == 'super_admin':
-        projects = db.query(Project).all()
-    else:
-        # Get owned projects
-        owned = db.query(Project).filter(Project.owner_id == user_id).all()
-        
-        # Get projects where user is a member
-        memberships = db.query(ProjectMember).filter(ProjectMember.user_id == user_id).all()
-        member_project_ids = [m.project_id for m in memberships]
-        member_projects = db.query(Project).filter(Project.id.in_(member_project_ids)).all() if member_project_ids else []
-        
-        # Combine and deduplicate
-        projects = list({p.id: p for p in (owned + member_projects)}.values())
-    
-    return projects
+        return _project_query(db).order_by(Project.id).all()
+
+    owned = _project_query(db).filter(Project.owner_id == user_id).all()
+    memberships = db.query(ProjectMember.project_id).filter(ProjectMember.user_id == user_id).all()
+    member_project_ids = [row[0] for row in memberships]
+    member_projects = (
+        _project_query(db).filter(Project.id.in_(member_project_ids)).all()
+        if member_project_ids else []
+    )
+    return list({p.id: p for p in (owned + member_projects)}.values())
+
+
+def project_list_access(db: Session, user: User, projects: list) -> dict[int, dict[str, Any] | None]:
+    """一次查出当前用户在这些项目上的权限，避免逐个项目查库。"""
+    if user.role == "super_admin":
+        return {
+            project.id: {
+                "role": "admin",
+                "permissions": dict(FULL_CRUD),
+                "is_owner": False,
+                "can_manage_members": True,
+            }
+            for project in projects
+        }
+
+    ids = [project.id for project in projects]
+    memberships = []
+    if ids:
+        memberships = (
+            db.query(ProjectMember)
+            .filter(ProjectMember.user_id == user.id, ProjectMember.project_id.in_(ids))
+            .all()
+        )
+    by_project = {item.project_id: item for item in memberships}
+    role_ids = {item.role_id for item in memberships if item.role_id}
+    roles = {}
+    if role_ids:
+        roles = {role.id: role for role in db.query(Role).filter(Role.id.in_(role_ids)).all()}
+
+    out: dict[int, dict[str, Any] | None] = {}
+    for project in projects:
+        if project.owner_id == user.id:
+            out[project.id] = {
+                "role": "admin",
+                "permissions": dict(FULL_CRUD),
+                "is_owner": True,
+                "can_manage_members": True,
+            }
+            continue
+        membership = by_project.get(project.id)
+        if membership is None:
+            out[project.id] = None
+            continue
+        perms = normalize_crud_permissions(membership.permissions, role=membership.role)
+        if membership.role_id:
+            role = roles.get(membership.role_id)
+            if role is not None:
+                role_perms = {key: bool((role.permissions or {}).get(key)) for key in PROJECT_PERMISSION_KEYS}
+                dept = str(perms.get("dept") or "")
+                perms = normalize_crud_permissions(role_perms, role=membership.role)
+                perms["dept"] = dept
+        out[project.id] = {
+            "role": membership.role,
+            "permissions": perms,
+            "is_owner": False,
+            "can_manage_members": membership.role == "admin",
+        }
+    return out
 
 
 def get_project_members(db: Session, project_id: str) -> list:
     """Get all members of a project with their roles."""
-    project = db.query(Project).filter(Project.project_id == project_id).first()
+    project = db.query(Project.id).filter(Project.project_id == project_id).first()
     if not project:
         return []
-    
-    memberships = db.query(ProjectMember).filter(ProjectMember.project_id == project.id).all()
-    
+
+    rows = (
+        db.query(ProjectMember, User)
+        .join(User, User.id == ProjectMember.user_id)
+        .filter(ProjectMember.project_id == project[0])
+        .all()
+    )
     members = []
-    for m in memberships:
-        user = get_user_by_id(db, m.user_id)
-        if user:
-            members.append({
-                'user_id': user.id,
-                'username': user.username,
-                'full_name': user.full_name,
-                'email': user.email,
-                'role': m.role,
-                'permissions': normalize_crud_permissions(m.permissions, role=m.role),
-                'joined_at': m.created_at.isoformat()
-            })
-    
+    for membership, user in rows:
+        members.append({
+            'user_id': user.id,
+            'username': user.username,
+            'full_name': user.full_name,
+            'email': user.email,
+            'role': membership.role,
+            'permissions': normalize_crud_permissions(membership.permissions, role=membership.role),
+            'joined_at': membership.created_at.isoformat()
+        })
     return members
 
 

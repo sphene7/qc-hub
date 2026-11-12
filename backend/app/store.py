@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import uuid
 from typing import Any, Optional
 import pandas as pd
@@ -23,7 +24,7 @@ from .spec_sync import sync_spec
 from .models import Project, SheetData
 from .logutil import log
 from .sheet_util import resolve_sheet_name, sheet_row_stats
-from .db import get_db
+from .db import SessionLocal, release_db
 
 
 def _serialize_value(val):
@@ -65,10 +66,9 @@ def save(parsed: dict[str, Any], spec: dict[str, Any],
     Returns:
         Project ID (wid)
     """
-    should_close_db = False
-    if db is None:
-        db = next(get_db())
-        should_close_db = True
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
     
     try:
         # Generate project ID
@@ -122,11 +122,121 @@ def save(parsed: dict[str, Any], spec: dict[str, Any],
         return wid
     
     finally:
-        if should_close_db:
+        if own_session:
             db.close()
 
 
-def get(wid: str, db: Session = None) -> Optional[dict[str, Any]]:
+def match_sheet_name(spec: dict[str, Any], raw: str | None) -> str | None:
+    """按工作表名、主表、首页主表依次匹配 spec 里的真实表名。"""
+    candidates: list[str] = []
+    if raw:
+        candidates.append(str(raw))
+    else:
+        primary = spec.get("primary_sheet")
+        if primary:
+            candidates.append(str(primary))
+        design_sheet = ((spec.get("dashboard_design") or {}).get("main_table") or {}).get("sheet")
+        if design_sheet:
+            candidates.append(str(design_sheet))
+    for candidate in candidates:
+        target = candidate.strip()
+        for sheet in spec.get("sheets") or []:
+            name = sheet.get("name") or ""
+            if name == candidate or name.strip() == target:
+                return name
+    return None
+
+
+def related_sheet_names(spec: dict[str, Any], anchor: str) -> list[str]:
+    """目标表 + 它的 VLOOKUP / join 对照表 + 代码表。不把无关大表一起读出来。"""
+    names: list[str] = []
+
+    def add(name: str | None) -> None:
+        if not name:
+            return
+        target = str(name).strip()
+        for sheet in spec.get("sheets") or []:
+            sheet_name = sheet.get("name") or ""
+            if sheet_name == name or sheet_name.strip() == target:
+                if sheet_name not in names:
+                    names.append(sheet_name)
+                return
+        if str(name) not in names:
+            names.append(str(name))
+
+    add(anchor)
+    for sheet in spec.get("sheets") or []:
+        if "代码" in (sheet.get("name") or ""):
+            add(sheet.get("name"))
+    anchor_sheet = next(
+        (
+            sheet for sheet in spec.get("sheets") or []
+            if (sheet.get("name") or "") == anchor or (sheet.get("name") or "").strip() == anchor.strip()
+        ),
+        None,
+    )
+    if anchor_sheet:
+        for column in (anchor_sheet.get("formula") or {}).get("columns") or []:
+            for lookup in column.get("vlookups") or []:
+                add(lookup.get("table_sheet"))
+    return names
+
+
+def sampling_support_sheets(spec: dict[str, Any]) -> list[str]:
+    """抽检登记只用代码表和 OQC 公式对照表，不读 OQC 宽表本身。"""
+    names: list[str] = []
+    oqc_names = {
+        sheet.get("name") or ""
+        for sheet in spec.get("sheets") or []
+        if "OQC" in (sheet.get("name") or "") or "抽检批次" in (sheet.get("name") or "")
+    }
+
+    def add(name: str | None) -> None:
+        if not name or name in oqc_names or name in names:
+            return
+        names.append(name)
+
+    for sheet in spec.get("sheets") or []:
+        name = sheet.get("name") or ""
+        if "代码" in name:
+            add(name)
+        if name not in oqc_names:
+            continue
+        for column in (sheet.get("formula") or {}).get("columns") or []:
+            for lookup in column.get("vlookups") or []:
+                add(lookup.get("table_sheet"))
+    return names
+
+
+def peek_spec(wid: str, db: Session) -> dict[str, Any] | None:
+    row = db.query(Project.spec).filter(Project.project_id == wid).first()
+    if row is None:
+        release_db(db)
+        return None
+    spec = copy.deepcopy(row[0] or {})
+    release_db(db)
+    return spec
+
+
+def load_for_sheet(wid: str, db: Session, sheet: str | None = None) -> Optional[dict[str, Any]]:
+    """只加载一张业务表及其对照表，读完即还连接，不把整本工作簿扫进内存。"""
+    spec = peek_spec(wid, db)
+    if spec is None:
+        return None
+    name = match_sheet_name(spec, sheet)
+    if not name:
+        return get(wid, db, persist_repairs=False)
+    return get(wid, db, sheets=related_sheet_names(spec, name), persist_repairs=False)
+
+
+def load_sampling_frames(wid: str, db: Session) -> Optional[dict[str, Any]]:
+    spec = peek_spec(wid, db)
+    if spec is None:
+        return None
+    return get(wid, db, sheets=sampling_support_sheets(spec), persist_repairs=False)
+
+
+def get(wid: str, db: Session = None, *, sheets: list[str] | None = None, persist_repairs: bool = True) -> Optional[dict[str, Any]]:
     """
     Get workbook from database.
     
@@ -137,47 +247,40 @@ def get(wid: str, db: Session = None) -> Optional[dict[str, Any]]:
     Returns:
         Dict with 'id', 'spec', 'frames' keys, or None if not found
     """
-    should_close_db = False
-    if db is None:
-        db = next(get_db())
-        should_close_db = True
-    
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+
     try:
-        # Get project
         project = db.query(Project).filter(Project.project_id == wid).first()
         if not project:
+            release_db(db)
             return None
-        
-        # Get all sheet data
-        sheet_rows = (
-            db.query(SheetData)
-            .filter(SheetData.project_id == project.id)
-            .order_by(SheetData.id)
-            .all()
-        )
-        
-        # Reconstruct DataFrames
-        frames = {}
-        sheet_data_map = {}
-        
+
+        project_db_id = project.id
+        spec = copy.deepcopy(project.spec or {})
+        query = db.query(SheetData).filter(SheetData.project_id == project_db_id)
+        if sheets is not None:
+            query = query.filter(SheetData.sheet_name.in_(sheets)) if sheets else query.filter(SheetData.id < 0)
+        sheet_rows = query.order_by(SheetData.id).all()
+
+        sheet_data_map: dict[str, list] = {}
         for row in sheet_rows:
-            sheet_name = row.sheet_name
-            if sheet_name not in sheet_data_map:
-                sheet_data_map[sheet_name] = []
-            
-            # Add __source back
-            row_dict = row.row_data.copy()
-            row_dict['__source'] = row.source
-            row_dict['__db_id'] = row.id
-            sheet_data_map[sheet_name].append(row_dict)
-        
-        # Create DataFrames
-        spec = project.spec or {}
+            row_dict = row.row_data.copy() if isinstance(row.row_data, dict) else dict(row.row_data or {})
+            row_dict["__source"] = row.source
+            row_dict["__db_id"] = row.id
+            sheet_data_map.setdefault(row.sheet_name, []).append(row_dict)
+        if sheets is not None:
+            for name in sheets:
+                sheet_data_map.setdefault(name, [])
+        # 行已经拷成普通 dict。先还连接，再做 DataFrame 修复。
+        release_db(db)
+
+        frames: dict[str, pd.DataFrame] = {}
         sheet_repairs: dict[str, pd.DataFrame] = {}
         for sheet_name, rows in sheet_data_map.items():
             if rows:
                 df = pd.DataFrame(rows)
-                # 按 spec 列顺序排列（JSON 载入后列会变成字母序）
                 sheet_spec = next(
                     (s for s in (spec.get("sheets") or []) if s.get("name") == sheet_name),
                     None,
@@ -201,94 +304,126 @@ def get(wid: str, db: Session = None) -> Optional[dict[str, Any]]:
                 frames[sheet_name] = df
             else:
                 frames[sheet_name] = pd.DataFrame()
-        for sheet_name, df in sheet_repairs.items():
-            update_sheet_data(wid, sheet_name, df, db=db)
-        sync_spec(spec, frames)
-        attach_code_table_lookups(spec, frames)
+        if persist_repairs:
+            for sheet_name, df in sheet_repairs.items():
+                update_sheet_data(wid, sheet_name, df, db=db)
+        if sheets is None:
+            sync_spec(spec, frames)
+            attach_code_table_lookups(spec, frames)
 
         frame_summary = {k: sheet_row_stats(v) for k, v in frames.items()}
-        log(f"[store.get] wid={wid} project_db_id={project.id} frames={frame_summary}")
+        log(f"[store.get] wid={wid} project_db_id={project_db_id} sheets={sheets if sheets is not None else 'all'} frames={frame_summary}")
 
         return {
             "id": wid,
             "spec": spec,
-            "frames": frames
+            "frames": frames,
         }
-    
     finally:
-        if should_close_db:
+        if own_session and db is not None:
             db.close()
 
 
-def update_sheet_data(wid: str, sheet_name: str, df: pd.DataFrame, 
-                     user_id: int = None, db: Session = None) -> bool:
-    """
-    Update sheet data in database.
-    
-    Args:
-        wid: Project ID
-        sheet_name: Sheet name
-        df: Updated DataFrame
-        user_id: User making the change
-        db: Database session
-    
-    Returns:
-        True if successful, False otherwise
-    """
-    should_close_db = False
-    if db is None:
-        db = next(get_db())
-        should_close_db = True
-    
+def _db_id(value: Any) -> int | None:
+    if value is None:
+        return None
     try:
-        # Get project
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _canonical(value: Any) -> Any:
+    """比较 JSON 行时把 1 和 1.0 看成同一个值。"""
+    if isinstance(value, dict):
+        return {str(k): _canonical(v) for k, v in value.items() if not str(k).startswith("__")}
+    if isinstance(value, list):
+        return [_canonical(v) for v in value]
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        number = float(value)
+        return int(number) if number.is_integer() else number
+    return value
+
+
+def _chunked(values: list[int], size: int = 400):
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
+
+
+def update_sheet_data(wid: str, sheet_name: str, df: pd.DataFrame,
+                     user_id: int = None, db: Session = None) -> bool:
+    """按 __db_id 增量更新。未改动的行不删不插。"""
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+
+    try:
         project = db.query(Project).filter(Project.project_id == wid).first()
         if not project:
             log(f"[store.update_sheet_data] FAIL wid={wid} sheet={sheet_name!r} reason=project_not_found")
             return False
 
         save_name = sheet_name
-        before = db.query(SheetData).filter(
-            SheetData.project_id == project.id,
-            SheetData.sheet_name == save_name,
-        ).count()
-        
-        # Delete existing rows for this sheet
-        db.query(SheetData).filter(
-            SheetData.project_id == project.id,
-            SheetData.sheet_name == save_name
-        ).delete()
-        
+        existing = {
+            row_id: (payload, source)
+            for row_id, payload, source in db.query(SheetData.id, SheetData.row_data, SheetData.source).filter(
+                SheetData.project_id == project.id,
+                SheetData.sheet_name == save_name,
+            ).all()
+        }
+        seen: set[int] = set()
         inserted = 0
+        updated = 0
         entered = 0
-        # Insert new rows
         if df is not None and not df.empty:
             for _, row in df.iterrows():
                 row_dict = _row_to_dict(row)
-                source = row_dict.get('__source', 'imported')
-                if source == 'entered':
+                source = row_dict.get("__source", "imported") or "imported"
+                if source == "entered":
                     entered += 1
-                if '__source' in row_dict:
-                    del row_dict['__source']
-                row_dict.pop('__db_id', None)
-                
-                sheet_data = SheetData(
+                row_dict.pop("__source", None)
+                db_id = _db_id(row_dict.pop("__db_id", None))
+                if db_id is not None and db_id in existing:
+                    if db_id not in seen:
+                        seen.add(db_id)
+                        old_payload, old_source = existing[db_id]
+                        if old_source != source or _canonical(old_payload) != _canonical(row_dict):
+                            db.query(SheetData).filter(SheetData.id == db_id).update(
+                                {SheetData.row_data: row_dict, SheetData.source: source},
+                                synchronize_session=False,
+                            )
+                            updated += 1
+                    continue
+                db.add(SheetData(
                     project_id=project.id,
                     sheet_name=save_name,
                     row_data=row_dict,
                     source=source,
-                    created_by=user_id if source == 'entered' else None
-                )
-                db.add(sheet_data)
+                    created_by=user_id if source == "entered" else None,
+                ))
                 inserted += 1
-        
+
+        stale = [row_id for row_id in existing if row_id not in seen]
+        deleted = len(stale)
+        for batch in _chunked(stale):
+            db.query(SheetData).filter(SheetData.id.in_(batch)).delete(synchronize_session=False)
+
         db.commit()
         log(
             f"[store.update_sheet_data] OK wid={wid} sheet={save_name!r} "
-            f"db_before={before} inserted={inserted} entered={entered} stats={sheet_row_stats(df)}"
+            f"db_before={len(existing)} updated={updated} inserted={inserted} "
+            f"deleted={deleted} entered={entered} stats={sheet_row_stats(df)}"
         )
         return True
-    
     finally:
-        if should_close_db:
+        if own_session and db is not None:
             db.close()

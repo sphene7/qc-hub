@@ -592,9 +592,9 @@ function flash(message) {
   }, 4000);
 }
 
-async function load() {
+async function load(silent = false) {
   if (!props.workbookId) return;
-  loading.value = true;
+  if (!silent) loading.value = true;
   error.value = "";
   try {
     const data = await loadSampling(props.workbookId);
@@ -603,7 +603,7 @@ async function load() {
   } catch (err) {
     error.value = err.message;
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -697,8 +697,8 @@ async function save() {
         defects: block.defects,
       };
       if (modal.value.version != null) payload.expected_version = modal.value.version;
-      const data = await updateInspection(props.workbookId, modal.value.id, payload);
-      entries.value = data.entries || [];
+      await updateInspection(props.workbookId, modal.value.id, payload);
+      await load(true);
       flash(`已保存：${joined} / ${form.value.sid}`);
     } else {
       if (!form.value.sid) throw new Error("请选择送检单");
@@ -710,16 +710,15 @@ async function save() {
       if (new Set(allNames).size !== allNames.length) {
         throw new Error("同一送检单下检验员不能重复");
       }
-      let data = null;
       for (const block of form.value.blocks) {
-        data = await addInspection(props.workbookId, form.value.sid, {
+        await addInspection(props.workbookId, form.value.sid, {
           外观抽检数量: block.外观抽检数量,
           机能抽检数量: block.机能抽检数量,
           检验员: joinInspectors(block),
           defects: block.defects,
         });
       }
-      entries.value = data?.entries || [];
+      await load(true);
       flash(`已保存 ${form.value.blocks.length} 组抽检 / ${form.value.sid}`);
     }
     closeModal();
@@ -734,8 +733,8 @@ async function save() {
 async function remove(c) {
   if (!confirm(`删除 ${c.检验员}（${c.抽检单号}）的抽检记录及其异常处理吗？`)) return;
   try {
-    const data = await deleteInspection(props.workbookId, c.抽检单号);
-    entries.value = data.entries || [];
+    await deleteInspection(props.workbookId, c.抽检单号);
+    await load(true);
     flash(`已删除 ${c.抽检单号}`);
   } catch (err) {
     error.value = err.message;

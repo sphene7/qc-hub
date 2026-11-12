@@ -554,9 +554,9 @@ function flash(message) {
   }, 4000);
 }
 
-async function load() {
+async function load(silent = false) {
   if (!props.workbookId) return;
-  loading.value = true;
+  if (!silent) loading.value = true;
   error.value = "";
   try {
     const data = await loadSampling(props.workbookId);
@@ -565,7 +565,7 @@ async function load() {
   } catch (err) {
     error.value = err.message;
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -611,7 +611,7 @@ async function save() {
     const data = modal.value.id
       ? await updateSubmission(props.workbookId, modal.value.id, payload)
       : await createSubmission(props.workbookId, payload);
-    entries.value = data.entries || [];
+    await load(true);
     rememberDept(form.value.送检单位);
     flash(`已保存 ${data.submission?.送检单号 || ""}`);
     closeModal();
@@ -626,8 +626,8 @@ async function save() {
 async function remove(entry) {
   if (!confirm(`确定删除 ${entry.送检单号}？其抽检与异常记录会一并删除。`)) return;
   try {
-    const data = await deleteSubmission(props.workbookId, entry.送检单号);
-    entries.value = data.entries || [];
+    await deleteSubmission(props.workbookId, entry.送检单号);
+    await load(true);
     flash(`已删除 ${entry.送检单号}`);
   } catch (err) {
     error.value = err.message;
