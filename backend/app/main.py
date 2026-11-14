@@ -83,6 +83,7 @@ from .models import (
     Role,
     ModelBusinessUnit,
     SamplingInspector,
+    SamplingSubmitter,
 )
 from .logutil import log, LOG_FILE
 from .supervise import note_blocking, start_supervisor
@@ -1176,6 +1177,12 @@ class InspectorBody(BaseModel):
     sort_order: int | None = None
 
 
+class SubmitterBody(BaseModel):
+    name: str
+    active: bool = True
+    sort_order: int | None = None
+
+
 def _upsert_model_bu_rows(db: Session, rows: list[tuple[str, str]]) -> dict[str, int]:
     """按部番 upsert（model, business_unit）。"""
     existing = {m.model: m for m in db.query(ModelBusinessUnit).all()}
@@ -1495,6 +1502,126 @@ def delete_inspector_for_project(
         raise HTTPException(403, "无权限维护检验员")
     _sampling_ctx(wid, current_user, db, "read", "无权限")
     row = db.query(SamplingInspector).filter(SamplingInspector.id == item_id).first()
+    if not row:
+        raise HTTPException(404, "记录不存在")
+    db.delete(row)
+    db.commit()
+    return {"message": "已删除"}
+
+
+def _submitter_item(row: SamplingSubmitter) -> dict:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "active": bool(row.active),
+        "sort_order": int(row.sort_order or 0),
+    }
+
+
+def _submitters_payload(db: Session, q: str | None, include_inactive: bool, page: int, page_size: int):
+    page = max(1, page)
+    page_size = min(max(1, page_size), 200)
+    query = db.query(SamplingSubmitter)
+    if not include_inactive:
+        query = query.filter(SamplingSubmitter.active.is_(True))
+    if q and q.strip():
+        query = query.filter(SamplingSubmitter.name.like(f"%{q.strip()}%"))
+    total = query.count()
+    rows = (
+        query.order_by(SamplingSubmitter.sort_order.asc(), SamplingSubmitter.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {
+        "items": [_submitter_item(r) for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+@app.get("/api/workbooks/{wid}/sampling/submitters")
+def list_submitters_for_project(
+    wid: str,
+    q: str | None = None,
+    include_inactive: bool = False,
+    page: int = 1,
+    page_size: int = 50,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    return _submitters_payload(db, q, include_inactive, page, page_size)
+
+
+@app.post("/api/workbooks/{wid}/sampling/submitters")
+def create_submitter_for_project(
+    wid: str,
+    body: SubmitterBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护送检员")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "送检员姓名不能为空")
+    if db.query(SamplingSubmitter).filter(SamplingSubmitter.name == name).first():
+        raise HTTPException(400, "该送检员已存在")
+    max_sort = db.query(func.max(SamplingSubmitter.sort_order)).scalar() or 0
+    sort_order = body.sort_order if body.sort_order is not None else int(max_sort) + 1
+    row = SamplingSubmitter(name=name, active=bool(body.active), sort_order=sort_order)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"item": _submitter_item(row)}
+
+
+@app.put("/api/workbooks/{wid}/sampling/submitters/{item_id}")
+def update_submitter_for_project(
+    wid: str,
+    item_id: int,
+    body: SubmitterBody,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护送检员")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    row = db.query(SamplingSubmitter).filter(SamplingSubmitter.id == item_id).first()
+    if not row:
+        raise HTTPException(404, "记录不存在")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "送检员姓名不能为空")
+    duplicated = (
+        db.query(SamplingSubmitter)
+        .filter(SamplingSubmitter.name == name, SamplingSubmitter.id != item_id)
+        .first()
+    )
+    if duplicated:
+        raise HTTPException(400, "该送检员已存在")
+    row.name = name
+    row.active = bool(body.active)
+    if body.sort_order is not None:
+        row.sort_order = int(body.sort_order)
+    db.commit()
+    return {"message": "已更新", "item": _submitter_item(row)}
+
+
+@app.delete("/api/workbooks/{wid}/sampling/submitters/{item_id}")
+def delete_submitter_for_project(
+    wid: str,
+    item_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not _can_maintain_model_bu(db, wid, current_user):
+        raise HTTPException(403, "无权限维护送检员")
+    _sampling_ctx(wid, current_user, db, "read", "无权限")
+    row = db.query(SamplingSubmitter).filter(SamplingSubmitter.id == item_id).first()
     if not row:
         raise HTTPException(404, "记录不存在")
     db.delete(row)

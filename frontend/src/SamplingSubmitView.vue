@@ -87,14 +87,15 @@
               <th class="num">抽检人数</th>
               <th class="num">异常</th>
               <th>状态</th>
+              <th>送检员</th>
               <th>完成日期</th>
               <th>登记人</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="16"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="17"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="16">
+              <td colspan="17">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">📋</span>
                   没有符合条件的送检单
@@ -133,6 +134,7 @@
                 <td>
                   <span class="smp-badge" :class="statusOf(e).cls">{{ statusOf(e).label }}</span>
                 </td>
+                <td>{{ e.送检员 || "-" }}</td>
                 <td>{{ e.完成日期 || "-" }}</td>
                 <td>{{ e.登记人 || "-" }}</td>
               </tr>
@@ -225,6 +227,14 @@
                   v-model="form.课室负责人"
                   :options="options.课室负责人 || []"
                   placeholder="选择或输入课室负责人"
+                />
+              </label>
+              <label class="smp-field">
+                <span>送检员</span>
+                <ComboField
+                  v-model="form.送检员"
+                  :options="options.送检员 || []"
+                  placeholder="选择或输入送检员"
                 />
               </label>
               <label class="smp-field full">
@@ -353,7 +363,7 @@ function exportFiltered() {
   try {
     const headers = [
       "送检单号", "送检日期", "送检时间", "送检类型", "部番", "机种", "事业部", "送检单位",
-      "送检数量", "检验数量", "同批送检次数", "是否紧急出货", "确认者", "课室负责人",
+      "送检数量", "检验数量", "同批送检次数", "是否紧急出货", "确认者", "课室负责人", "送检员",
       "层别备注", "抽检人数", "异常", "状态", "完成日期", "完成时间", "登记人",
     ];
     const data = rows.map((e) => {
@@ -374,6 +384,7 @@ function exportFiltered() {
         e.是否紧急出货,
         e.确认者,
         e.课室负责人,
+        e.送检员,
         e.层别备注,
         (e.抽检 || []).length,
         defectCount(e),
@@ -457,6 +468,7 @@ function blankForm() {
     层别备注: "",
     确认者: "",
     课室负责人: "",
+    送检员: "",
   };
 }
 

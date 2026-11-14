@@ -136,6 +136,7 @@ class SamplingSubmission(Base):
     remark = Column(Text, nullable=True)
     confirmer = Column(String(50), nullable=True)
     room_owner = Column(String(50), nullable=True)
+    submitter = Column(String(50), nullable=True)  # 送检员（业务字段，非系统角色）
     completed_at = Column(DateTime, nullable=True)  # 完成日期：判定 OK 后自动写入
     version = Column(Integer, nullable=False, default=1)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=True)
@@ -259,6 +260,18 @@ class ModelBusinessUnit(Base):
 class SamplingInspector(Base):
     """抽检登记检验员名单（类别管理可维护）。"""
     __tablename__ = 'sampling_inspectors'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), unique=True, nullable=False, index=True)
+    active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)
+
+
+class SamplingSubmitter(Base):
+    """送检登记送检员名单（类别管理可维护）。"""
+    __tablename__ = 'sampling_submitters'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(50), unique=True, nullable=False, index=True)

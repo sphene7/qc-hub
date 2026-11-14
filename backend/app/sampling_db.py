@@ -35,6 +35,7 @@ from .models import (
     SamplingInspection,
     SamplingInspector,
     SamplingSubmission,
+    SamplingSubmitter,
     SheetData,
     User,
 )
@@ -337,6 +338,7 @@ def _submission_dict(s: SamplingSubmission) -> dict[str, Any]:
         "层别备注": s.remark or "",
         "确认者": s.confirmer or "",
         "课室负责人": s.room_owner or "",
+        "送检员": s.submitter or "",
         "完成日期": _iso(s.completed_at) if s.completed_at else "",
         "版本": s.version,
         "登记人": "",
@@ -558,11 +560,12 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         .all()
         if _text(r.name)
     ]
-    # 权限管理里分配了「检验员」角色的用户，也应出现在抽检登记下拉中
-    role_inspector_names: list[str] = []
-    inspector_roles = db.query(Role).filter(Role.name == "检验员").all()
-    role_ids = [r.id for r in inspector_roles]
-    if role_ids:
+    def _role_member_names(role_name: str) -> list[str]:
+        names: list[str] = []
+        roles = db.query(Role).filter(Role.name == role_name).all()
+        role_ids = [r.id for r in roles]
+        if not role_ids:
+            return names
         member_users = (
             db.query(User)
             .join(ProjectMember, ProjectMember.user_id == User.id)
@@ -575,9 +578,24 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         for u in member_users:
             display = _text(u.full_name) or _text(u.username)
             if display:
-                role_inspector_names.append(display)
+                names.append(display)
+        return names
 
-    # 下拉名单：类别管理固定名单（保序）+ 权限「检验员」；不含历史自由输入
+    # 权限管理里分配了对应角色的用户，也应出现在下拉中
+    role_inspector_names = _role_member_names("检验员")
+    role_submitter_names = _role_member_names("送检员")
+
+    managed_submitters = [
+        r.name
+        for r in db.query(SamplingSubmitter)
+        .filter(SamplingSubmitter.active.is_(True))
+        .order_by(SamplingSubmitter.sort_order.asc(), SamplingSubmitter.id.asc())
+        .all()
+        if _text(r.name)
+    ]
+    submitters_used = _distinct(SamplingSubmission.submitter)
+
+    # 下拉名单：类别管理固定名单（保序）+ 权限角色用户；不含历史自由输入
     roster_inspectors: list[str] = []
     for name in managed_inspectors + role_inspector_names:
         if name and name not in roster_inspectors:
@@ -586,6 +604,11 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
     for name in inspectors:
         history_inspectors.extend(_split_parts(name))
 
+    roster_submitters: list[str] = []
+    for name in managed_submitters + role_submitter_names:
+        if name and name not in roster_submitters:
+            roster_submitters.append(name)
+
     return {
         "部番": uniq(part_nos + models_from_code + part_numbers),
         "机种": uniq(models + models_from_code + part_numbers),
@@ -593,6 +616,7 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
         "事业部": uniq(units_used + bu_from_map),
         "送检类型": uniq(list(SUBMIT_TYPE_OPTIONS) + types_from_history),
         "检验员": roster_inspectors or uniq(history_inspectors),
+        "送检员": roster_submitters or uniq(submitters_used),
         "不良位置": uniq(
             [m for minors in minors_by_cat.values() for m in minors] + locations
         ),
@@ -610,6 +634,7 @@ def options(item: dict[str, Any], db: Session) -> dict[str, Any]:
             "defect_categories": categories,
             "defect_minors_by_category": minors_by_cat,
             "inspectors": roster_inspectors,
+            "submitters": roster_submitters,
         },
     }
 
@@ -683,6 +708,7 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "", dep
         remark=_text(payload.get("层别备注")),
         confirmer=_text(payload.get("确认者")),
         room_owner=_text(payload.get("课室负责人")),
+        submitter=_text(payload.get("送检员")),
         version=1,
         created_by=user_id,
         created_at=_now(),
@@ -753,6 +779,7 @@ def update_submission(wid, item, sid, payload, user_id, db, user_label: str = ""
     record.remark = _text(payload.get("层别备注"))
     record.confirmer = _text(payload.get("确认者"))
     record.room_owner = _text(payload.get("课室负责人"))
+    record.submitter = _text(payload.get("送检员"))
     record.version = int(record.version or 1) + 1
     record.updated_at = _now()
     _audit(db, user_id, "sampling_submission", record.code, "update", payload)

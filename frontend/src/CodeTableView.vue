@@ -21,6 +21,7 @@
         <button type="button" :class="{ on: oqcPage === 4 }" @click="oqcPage = 4">第四页 · 课室负责人 · 课室</button>
         <button type="button" :class="{ on: oqcPage === 5 }" @click="oqcPage = 5">第五页 · 部番对照</button>
         <button type="button" :class="{ on: oqcPage === 6 }" @click="oqcPage = 6">第六页 · 检验员</button>
+        <button type="button" :class="{ on: oqcPage === 7 }" @click="oqcPage = 7">第七页 · 送检员</button>
       </div>
 
       <div class="oqc-overview">
@@ -326,6 +327,18 @@
           </div>
         </header>
         <InspectorManagement :workbook-id="workbookId" :can-edit="canEdit || canHandle" />
+      </section>
+
+      <section v-show="oqcPage === 7" class="oqc-section">
+        <header class="oqc-section-head">
+          <div>
+            <h3>送检员名单</h3>
+            <p class="section-desc">
+              送检登记下拉用的固定名单（业务字段，与系统角色「送检员」互补）。可增删改、停用；停用后不再出现在新登记选项里。
+            </p>
+          </div>
+        </header>
+        <SubmitterManagement :workbook-id="workbookId" :can-edit="canEdit || canHandle" />
       </section>
 
       <!-- OQC editors -->
@@ -781,6 +794,7 @@ import { authFetch } from "./api.js";
 import ComboField from "./ComboField.vue";
 import ModelBuManagement from "./ModelBuManagement.vue";
 import InspectorManagement from "./InspectorManagement.vue";
+import SubmitterManagement from "./SubmitterManagement.vue";
 
 const props = defineProps({
   workbookId: String,
