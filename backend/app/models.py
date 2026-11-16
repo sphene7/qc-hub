@@ -148,6 +148,12 @@ class SamplingSubmission(Base):
 
     __table_args__ = (
         Index('idx_sampling_project_deleted', 'project_id', 'deleted_at'),
+        # 列表：project + 未删除 + 送检时间/单号排序，避免全表扫描后再 filesort
+        Index('idx_sampling_list', 'project_id', 'deleted_at', 'submit_date', 'code'),
+        # 带送检单位过滤的同一列表
+        Index('idx_sampling_dept_list', 'project_id', 'deleted_at', 'department', 'submit_date', 'code'),
+        # 同一天、同部番取最大批次
+        Index('idx_sampling_part_day', 'project_id', 'part_no', 'deleted_at', 'submit_date'),
     )
 
 

@@ -2383,7 +2383,11 @@ def list_code_classifications(
 ):
     if not check_project_permission(db, wid, current_user.id, "read"):
         raise HTTPException(403, "无权限")
-    item = store.get(wid, db)
+    spec = store.peek_spec(wid, db)
+    if spec is None:
+        raise HTTPException(404, "工作簿不存在或已过期")
+    names = store.code_sheet_names(spec, code_sheet)
+    item = store.get(wid, db, sheets=names, persist_repairs=False) if names else store.get(wid, db)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
     try:

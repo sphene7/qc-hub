@@ -208,6 +208,19 @@ def _migrate_schema(engine):
             conn.commit()
             print("Added idx_sampling_project_deleted.")
 
+        # 慢请求里的送检列表 / 同日同部番批次。已有单列索引盖不住排序和组合条件。
+        for index_name, columns in (
+            ("idx_sampling_list", "(project_id, deleted_at, submit_date, code)"),
+            ("idx_sampling_dept_list", "(project_id, deleted_at, department, submit_date, code)"),
+            ("idx_sampling_part_day", "(project_id, part_no, deleted_at, submit_date)"),
+        ):
+            if not _has_index(conn, "sampling_submissions", index_name):
+                conn.execute(text(
+                    f"ALTER TABLE sampling_submissions ADD INDEX {index_name} {columns}"
+                ))
+                conn.commit()
+                print(f"Added {index_name}.")
+
 
 def _has_column(conn, table: str, column: str) -> bool:
     result = conn.execute(

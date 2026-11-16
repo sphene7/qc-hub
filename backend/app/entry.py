@@ -1059,12 +1059,28 @@ def is_junk_row(row: dict[str, Any], id_key: str = "序号") -> bool:
 
 
 def drop_junk_rows(df: pd.DataFrame, id_key: str = "序号") -> pd.DataFrame:
+    """去掉无序号且业务列全空的行。按列判断，避免 iterrows 把整行做成 Series。"""
     if df is None or df.empty:
         return df
-    keep = [not is_junk_row(r.to_dict(), id_key) for _, r in df.iterrows()]
-    if all(keep):
+    if id_key in df.columns:
+        id_blank = _cells_blank(df[id_key])
+    else:
+        id_blank = pd.Series(True, index=df.index)
+    filled = pd.Series(False, index=df.index)
+    for col in df.columns:
+        if col == id_key or str(col).startswith("__"):
+            continue
+        filled = filled | ~_cells_blank(df[col])
+    junk = id_blank & ~filled
+    if not bool(junk.any()):
         return df
-    return df.loc[keep].reset_index(drop=True)
+    return df.loc[~junk].reset_index(drop=True)
+
+
+def _cells_blank(series: pd.Series) -> pd.Series:
+    values = series.to_numpy(dtype=object, copy=False)
+    blank = [_is_blank_cell(v) for v in values]
+    return pd.Series(blank, index=series.index)
 
 
 LEGACY_MONTH_DEFAULT_YEAR = 2026

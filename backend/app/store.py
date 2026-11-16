@@ -182,6 +182,31 @@ def related_sheet_names(spec: dict[str, Any], anchor: str) -> list[str]:
     return names
 
 
+def code_sheet_names(spec: dict[str, Any], requested: str | None = None) -> list[str]:
+    """代码表名单。类别管理只读这些表，不把 OQC / 问题清单宽表一起扫出来。"""
+    names: list[str] = []
+
+    def add(name: str | None) -> None:
+        if name and name not in names:
+            names.append(name)
+
+    requested_name = (requested or "").strip()
+    for sheet in spec.get("sheets") or []:
+        name = sheet.get("name") or ""
+        folded = name.strip()
+        keys = {c.get("key") for c in (sheet.get("columns") or [])}
+        is_code = (
+            "代码" in folded
+            or {"分类", "类别"}.issubset(keys)
+            or {"代码", "不良描述", "大类"}.issubset(keys)
+        )
+        if requested_name and (name == requested or folded == requested_name):
+            add(name)
+        elif is_code:
+            add(name)
+    return names
+
+
 def sampling_support_sheets(spec: dict[str, Any]) -> list[str]:
     """抽检登记只用代码表和 OQC 公式对照表，不读 OQC 宽表本身。"""
     names: list[str] = []
@@ -262,7 +287,10 @@ def get(wid: str, db: Session = None, *, sheets: list[str] | None = None, persis
         query = db.query(SheetData).filter(SheetData.project_id == project_db_id)
         if sheets is not None:
             query = query.filter(SheetData.sheet_name.in_(sheets)) if sheets else query.filter(SheetData.id < 0)
-        sheet_rows = query.order_by(SheetData.id).all()
+        # idx_project_sheet 已按表名取出行。SQL 里再 ORDER BY id 会 filesort 整行 JSON，
+        # 改在取出后按主键排，同一张表内的行序与原来一致。
+        sheet_rows = query.all()
+        sheet_rows.sort(key=lambda row: row.id)
 
         sheet_data_map: dict[str, list] = {}
         for row in sheet_rows:
