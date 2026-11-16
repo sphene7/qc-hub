@@ -311,7 +311,7 @@ const fiveMChart = computed(() => {
   const items = fiveMSummary.value.items || [];
   const palette =
     chartTheme.value === "screen"
-      ? ["#c4b5fd", "#a5b4fc", "#ddd6fe", "#e9d5ff", "#b794f6"]
+      ? ["#8fa3c4", "#7eae9a", "#c4a574", "#a48fb0", "#79a8b5"]
       : ["#62c4dd", "#7fa7df", "#ce91a4", "#d8b979", "#61c9ae"];
   return {
     color: palette,

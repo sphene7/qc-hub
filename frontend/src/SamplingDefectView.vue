@@ -118,7 +118,11 @@
                 <td>{{ c.事业部 || "-" }}</td>
                 <td>{{ c.检验员 }}</td>
                 <td>
-                  <span class="smp-badge" :class="isNg(c.判定) ? 'smp-badge-bad' : 'smp-badge-ok'">
+                  <span
+                    class="smp-badge"
+                    :class="isNg(c.判定) ? 'smp-badge-bad' : (String(c.判定||'').toUpperCase()==='OK1' ? 'smp-badge-ok1' : (String(c.判定||'').toUpperCase()==='OK2' ? 'smp-badge-ok2' : 'smp-badge-ok'))"
+                    :title="String(c.判定||'').toUpperCase()==='OK1' ? '免检 · OK1' : (String(c.判定||'').toUpperCase()==='OK2' ? '特采 · OK2' : (isNg(c.判定) ? '不良 · NG' : '正常 · OK'))"
+                  >
                     {{ c.判定 || "-" }}
                   </span>
                 </td>

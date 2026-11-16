@@ -2362,7 +2362,11 @@ def abnormal_monitor(
             continue
         if not check_project_permission(db, wid, current_user.id, "read"):
             continue
-        item = store.load_for_sheet(wid, db, None)
+        # 必须按 dashboard 主表加载；load_for_sheet(None) 会优先 primary_sheet，
+        # 巡检项目会误读「抽检数据·展开」导致大屏全空。
+        spec = store.peek_spec(wid, db)
+        main_sheet = ((spec or {}).get("dashboard_design") or {}).get("main_table", {}).get("sheet")
+        item = store.load_for_sheet(wid, db, main_sheet) if main_sheet else store.get(wid, db, persist_repairs=False)
         if not item:
             continue
         panels.append(build_module_monitor(key, item, sort=sort_dir))

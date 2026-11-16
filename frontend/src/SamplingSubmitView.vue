@@ -206,7 +206,7 @@
                 />
               </label>
               <label class="smp-field">
-                <span>是否紧急出货</span>
+                <span>是否紧急出货<span class="smp-required">*</span></span>
                 <select v-model="form.是否紧急出货">
                   <option value="">-</option>
                   <option value="是">是</option>
@@ -230,7 +230,7 @@
                 />
               </label>
               <label class="smp-field">
-                <span>送检员</span>
+                <span>送检员<span class="smp-required">*</span></span>
                 <ComboField
                   v-model="form.送检员"
                   :options="options.送检员 || []"
@@ -616,7 +616,11 @@ async function save() {
   saving.value = true;
   modal.value.error = "";
   try {
-    const payload = { ...form.value };
+    const urgent = String(form.value.是否紧急出货 || "").trim();
+    if (!urgent) throw new Error("请选择是否紧急出货");
+    const submitter = String(form.value.送检员 || "").trim();
+    if (!submitter) throw new Error("请填写送检员");
+    const payload = { ...form.value, 是否紧急出货: urgent, 送检员: submitter };
     if (modal.value.id && modal.value.version != null) {
       payload.expected_version = modal.value.version;
     }

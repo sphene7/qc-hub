@@ -47,6 +47,32 @@ function initChart() {
   chart.setOption(themedOption(props.option || {}), true);
 }
 
+/** 暗色背景用中低亮度、降饱和色，避免霓虹刺眼 */
+const SCREEN_PALETTE = [
+  "#8fa3c4",
+  "#7eae9a",
+  "#c4a574",
+  "#a48fb0",
+  "#79a8b5",
+  "#b08a78",
+  "#8a9a72",
+  "#9a8490",
+  "#6f95a8",
+  "#b09c6e",
+  "#8790a8",
+  "#9a7f8c",
+];
+
+function softenHex(color, idx = 0) {
+  if (!color || typeof color !== "string") return SCREEN_PALETTE[idx % SCREEN_PALETTE.length];
+  const raw = color.trim();
+  // 近白 / 高亮色 → 换柔和色
+  if (/^#fff(f)?$/i.test(raw) || /^#f[5-9a-f]{5}$/i.test(raw) || /^#e[89a-f][d-f]/i.test(raw)) {
+    return SCREEN_PALETTE[idx % SCREEN_PALETTE.length];
+  }
+  return raw;
+}
+
 function themedOption(option) {
   if (props.theme !== "screen") return option;
   const next = { ...option };
@@ -54,21 +80,48 @@ function themedOption(option) {
     if (!value) return value;
     const item = {
       ...value,
-      axisLine: { ...(value.axisLine || {}), lineStyle: { ...(value.axisLine?.lineStyle || {}), color: "rgba(216, 180, 254, .32)" } },
-      axisLabel: { ...(value.axisLabel || {}), color: "rgba(237, 233, 254, .58)" },
-      splitLine: { ...(value.splitLine || {}), lineStyle: { ...(value.splitLine?.lineStyle || {}), color: "rgba(216, 180, 254, .08)" } },
-      nameTextStyle: { ...(value.nameTextStyle || {}), color: "rgba(237, 233, 254, .58)" },
+      axisLine: { ...(value.axisLine || {}), lineStyle: { ...(value.axisLine?.lineStyle || {}), color: "rgba(180, 190, 220, .28)" } },
+      axisLabel: { ...(value.axisLabel || {}), color: "rgba(210, 215, 230, .55)" },
+      splitLine: { ...(value.splitLine || {}), lineStyle: { ...(value.splitLine?.lineStyle || {}), color: "rgba(160, 170, 200, .08)" } },
+      nameTextStyle: { ...(value.nameTextStyle || {}), color: "rgba(210, 215, 230, .55)" },
     };
     return item;
   };
   next.backgroundColor = "transparent";
-  next.color = ["#c4b5fd", "#a5b4fc", "#ddd6fe", "#e9d5ff", "#b794f6", "#d8b4fe"];
-  next.textStyle = { ...(next.textStyle || {}), color: "#f5f0ff" };
-  next.tooltip = { ...(next.tooltip || {}), backgroundColor: "rgba(30, 18, 56, .88)", borderColor: "rgba(216, 180, 254, .32)", textStyle: { color: "#f5f0ff" } };
-  next.legend = { ...(next.legend || {}), textStyle: { ...(next.legend?.textStyle || {}), color: "rgba(237, 233, 254, .62)" } };
+  next.color = SCREEN_PALETTE;
+  next.textStyle = { ...(next.textStyle || {}), color: "rgba(230, 232, 240, .88)" };
+  next.tooltip = {
+    ...(next.tooltip || {}),
+    backgroundColor: "rgba(22, 26, 38, .92)",
+    borderColor: "rgba(160, 170, 200, .28)",
+    textStyle: { color: "rgba(230, 232, 240, .9)" },
+  };
+  next.legend = {
+    ...(next.legend || {}),
+    textStyle: { ...(next.legend?.textStyle || {}), color: "rgba(200, 205, 220, .62)" },
+  };
   next.xAxis = Array.isArray(next.xAxis) ? next.xAxis.map(axis) : axis(next.xAxis);
   next.yAxis = Array.isArray(next.yAxis) ? next.yAxis.map(axis) : axis(next.yAxis);
-  next.series = (next.series || []).map((series) => ({ ...series, label: { ...(series.label || {}), color: "rgba(245, 240, 255, .85)" } }));
+  next.series = (next.series || []).map((series, idx) => {
+    const soft = softenHex(series.itemStyle?.color || series.lineStyle?.color, idx);
+    const baseLine = series.lineStyle || {};
+    const baseItem = series.itemStyle || {};
+    return {
+      ...series,
+      itemStyle: { ...baseItem, color: soft, opacity: baseItem.opacity ?? 0.92 },
+      lineStyle: {
+        ...baseLine,
+        color: soft,
+        width: baseLine.width ?? 2,
+        opacity: Math.min(baseLine.opacity ?? 0.82, 0.85),
+      },
+      label: { ...(series.label || {}), color: "rgba(220, 224, 235, .72)" },
+      // 面积/散点等避免高亮发光
+      areaStyle: series.areaStyle
+        ? { ...series.areaStyle, opacity: Math.min(series.areaStyle.opacity ?? 0.18, 0.22) }
+        : series.areaStyle,
+    };
+  });
   return next;
 }
 </script>

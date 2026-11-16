@@ -224,6 +224,125 @@ def _build_summary(sections: list[dict[str, Any]], days_in_month: int) -> dict[s
     }
 
 
+def _is_ng_verdict(val: Any) -> bool:
+    s = str(val or "").strip().upper()
+    if s == "NG" or s.startswith("[NG]"):
+        return True
+    return s.startswith("NG×") or s.startswith("NGX") or s.startswith("NG*")
+
+
+def _split_parts(val: Any) -> list[str]:
+    text = str(val or "").strip()
+    if not text or text.lower() in {"nan", "none", "nat", "null", "-", "—"}:
+        return []
+    parts: list[str] = []
+    for chunk in re.split(r"[;；|｜/／]+", text):
+        cleaned = chunk.strip()
+        if cleaned:
+            parts.append(cleaned)
+    return parts
+
+
+def _series_key(row: pd.Series) -> str:
+    series = str(row.get("系列") or "").strip()
+    if series and series.lower() not in {"nan", "none", "nat", "null"}:
+        return series
+    model = str(row.get("机种") or row.get("部番") or "").strip()
+    if not model or model.lower() in {"nan", "none", "nat", "null"}:
+        return "—"
+    return model.split("-", 1)[0].strip() or model
+
+
+def _resolve_judge_col(df: pd.DataFrame) -> str | None:
+    if "判定" in df.columns:
+        return "判定"
+    if "判定_2" in df.columns:
+        return "判定_2"
+    return None
+
+
+def _empty_dashboard() -> dict[str, Any]:
+    return {
+        "section_pass_rate": [],
+        "section_ng_share": [],
+        "defect_by_phenomenon": [],
+        "defect_by_series": [],
+    }
+
+
+def _cum_ratio_rows(counter: dict[str, int]) -> list[dict[str, Any]]:
+    items = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
+    total = sum(v for _, v in items)
+    running = 0
+    rows: list[dict[str, Any]] = []
+    for name, count in items:
+        running += count
+        rows.append(
+            {
+                "name": name,
+                "count": int(count),
+                "cum_ratio": (running / total) if total else None,
+            }
+        )
+    return rows
+
+
+def _build_dashboard(df: pd.DataFrame) -> dict[str, Any]:
+    """看板四图：课室合格率 / NG 占比 / 现象不良 / 机型不良（月内正常送检）。"""
+    if df is None or df.empty:
+        return _empty_dashboard()
+
+    judge_col = _resolve_judge_col(df)
+    unit_stats: dict[str, dict[str, float]] = {}
+    phen_counter: dict[str, int] = {}
+    series_counter: dict[str, int] = {}
+
+    for _, row in df.iterrows():
+        unit = str(row.get(UNIT_FIELD) or "").strip() or "—"
+        if unit.lower() in {"nan", "none", "nat", "null"}:
+            unit = "—"
+        bucket = unit_stats.setdefault(unit, {"sent": 0.0, "passed": 0.0, "ng": 0.0, "ok": 0.0})
+        bucket["sent"] += _num(row.get(SENT_FIELD))
+        bucket["passed"] += _num(row.get(PASS_FIELD))
+        is_ng = _is_ng_verdict(row.get(judge_col)) if judge_col else False
+        if is_ng:
+            bucket["ng"] += 1
+            for phen in _split_parts(row.get("现象")):
+                phen_counter[phen] = phen_counter.get(phen, 0) + 1
+            key = _series_key(row)
+            series_counter[key] = series_counter.get(key, 0) + 1
+        else:
+            bucket["ok"] += 1
+
+    section_pass_rate: list[dict[str, Any]] = []
+    section_ng_share: list[dict[str, Any]] = []
+    for name in sorted(unit_stats.keys(), key=_section_sort_key):
+        st = unit_stats[name]
+        sent = round(st["sent"], 4)
+        passed = round(st["passed"], 4)
+        ng = int(st["ng"])
+        ok = int(st["ok"])
+        section_pass_rate.append(
+            {
+                "name": name,
+                "sent": sent,
+                "passed": passed,
+                "rate": _safe_rate(passed, sent),
+                "ng": ng,
+                "ok": ok,
+            }
+        )
+        if ng > 0:
+            section_ng_share.append({"name": name, "value": ng})
+
+    return {
+        "section_pass_rate": section_pass_rate,
+        "section_ng_share": section_ng_share,
+        "defect_by_phenomenon": _cum_ratio_rows(phen_counter),
+        "defect_by_series": _cum_ratio_rows(series_counter),
+    }
+
+
 def build_oqc_analytics(
     item: dict[str, Any],
     sheet_name: str | None = None,
@@ -241,6 +360,7 @@ def build_oqc_analytics(
         "days_in_month": 31,
         "sections": [],
         "summary": {"name": "汇总", "days": [], "ttl": {"sent": 0, "passed": 0, "rate": None}},
+        "dashboard": _empty_dashboard(),
     }
     if df is None:
         return empty
@@ -253,6 +373,7 @@ def build_oqc_analytics(
     days_in_month = calendar.monthrange(year, month)[1]
     sections = _build_section_rows(scoped, year=year, month=month, days_in_month=days_in_month)
     summary = _build_summary(sections, days_in_month)
+    dashboard = _build_dashboard(scoped)
 
     chart_title = f"{month}月变焦产品批次合格率推移图"
     chart_subtitle = "正常送检"
@@ -265,4 +386,5 @@ def build_oqc_analytics(
         "days_in_month": days_in_month,
         "sections": sections,
         "summary": summary,
+        "dashboard": dashboard,
     }

@@ -30,12 +30,12 @@
             </div>
             <div class="summary-stats">
               <span>总计 {{ fmtInt(currentPanel.summary?.total) }}</span>
-              <span>{{ currentPanel.module === 'sampling' ? 'NG' : '未结' }} {{ fmtInt(currentPanel.summary?.open) }}</span>
+              <span>{{ currentPanel.module === 'sampling' ? '未结NG' : '未结' }} {{ fmtInt(currentPanel.summary?.open) }}</span>
             </div>
           </section>
 
           <section class="zone zone-trend card">
-            <h2 class="panel-title">月度异常/完成件数 · 结案率趋势</h2>
+            <h2 class="panel-title">{{ trendTitle }}</h2>
             <div class="trend-wrap">
               <ChartView :option="trendChart" theme="screen" />
             </div>
@@ -43,7 +43,7 @@
 
           <section class="zone zone-list card">
             <div class="list-head">
-              <h2 class="panel-title">未结案清单</h2>
+              <h2 class="panel-title">{{ listTitle }}</h2>
               <div class="list-tools">
                 <span class="hint">{{ currentPanel.open_items?.length || 0 }} 条</span>
                 <button type="button" class="ghost-btn" @click="toggleSort">
@@ -129,6 +129,27 @@ let scrollPaused = false;
 
 const currentPanel = computed(() => panels.value[pageIndex.value] || null);
 
+const trendLabels = computed(() => {
+  const raw = currentPanel.value?.summary?.trend_labels || {};
+  const isSampling = currentPanel.value?.module === "sampling";
+  return {
+    abnormal: raw.abnormal || (isSampling ? "NG件数" : "异常件数"),
+    completed: raw.completed || (isSampling ? "OK件数" : "完成件数"),
+    rate: raw.rate || (isSampling ? "OK率" : "结案率"),
+  };
+});
+
+const listTitle = computed(
+  () =>
+    currentPanel.value?.summary?.list_label ||
+    (currentPanel.value?.module === "sampling" ? "NG 未结案清单" : "未结案清单"),
+);
+
+const trendTitle = computed(() => {
+  const t = trendLabels.value;
+  return `月度${t.abnormal}/${t.completed} · ${t.rate}趋势`;
+});
+
 const displayRows = computed(() => {
   const items = currentPanel.value?.open_items || [];
   const doubled = items.length > 6 ? [...items, ...items] : items;
@@ -174,6 +195,7 @@ const pieChart = computed(() => {
 const trendChart = computed(() => {
   const rows = currentPanel.value?.monthly_trend || [];
   const labels = rows.map((r) => r.month);
+  const names = trendLabels.value;
   return {
     tooltip: {
       trigger: "axis",
@@ -182,23 +204,23 @@ const trendChart = computed(() => {
         let html = `${params[0].axisValue}<br/>`;
         for (const p of params) {
           let val = p.value;
-          if (p.seriesName === "结案率" && val != null) val = `${val}%`;
+          if (p.seriesName === names.rate && val != null) val = `${val}%`;
           else if (val == null) val = "-";
           html += `${p.marker}${p.seriesName}: ${val}<br/>`;
         }
         return html;
       },
     },
-    legend: { data: ["异常件数", "完成件数", "结案率"], bottom: 0 },
+    legend: { data: [names.abnormal, names.completed, names.rate], bottom: 0 },
     grid: { left: 48, right: 48, bottom: 56, top: 36 },
     xAxis: { type: "category", data: labels },
     yAxis: [
       { type: "value", name: "件数" },
-      { type: "value", name: "结案率", axisLabel: { formatter: "{value}%" }, max: 100 },
+      { type: "value", name: names.rate, axisLabel: { formatter: "{value}%" }, max: 100 },
     ],
     series: [
       {
-        name: "异常件数",
+        name: names.abnormal,
         type: "bar",
         data: rows.map((r) => r.abnormal),
         barMaxWidth: 22,
@@ -206,14 +228,14 @@ const trendChart = computed(() => {
         label: { show: true, position: "top", fontSize: 10 },
       },
       {
-        name: "完成件数",
+        name: names.completed,
         type: "bar",
         data: rows.map((r) => r.completed ?? r.closed),
         barMaxWidth: 22,
         label: { show: true, position: "top", fontSize: 10 },
       },
       {
-        name: "结案率",
+        name: names.rate,
         type: "line",
         yAxisIndex: 1,
         smooth: true,

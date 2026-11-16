@@ -75,6 +75,31 @@ def _is_ng(val: Any) -> bool:
     return s.startswith("NG×") or s.startswith("NGX") or s.startswith("NG*")
 
 
+def _normalize_verdict_bucket(val: Any) -> str:
+    """判定归桶：OK / OK1(免检) / OK2(特采) / NG。"""
+    s = str(val or "").strip().upper()
+    if not s:
+        return "OK"
+    if s.startswith("NG") or s.startswith("[NG]"):
+        return "NG"
+    if s.startswith("OK1"):
+        return "OK1"
+    if s.startswith("OK2"):
+        return "OK2"
+    if s.startswith("OK"):
+        return "OK"
+    return "OK"
+
+
+def _has_close_date(val: Any) -> bool:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return False
+    if isinstance(val, (datetime, date, pd.Timestamp)):
+        return True
+    s = str(val).strip()
+    return bool(s) and s.lower() not in {"nan", "none", "nat", "null", "-"}
+
+
 def _resolve_judge_col(df: pd.DataFrame) -> str | None:
     """NG 判定优先读「判定」列，其次「判定_2」。"""
     if "判定" in df.columns:
@@ -237,6 +262,20 @@ def _complaint_monthly(df: pd.DataFrame) -> list[dict[str, Any]]:
     return rows
 
 
+def _sampling_unclosed_mask(data: pd.DataFrame, judge_col: str | None) -> pd.Series:
+    """抽检未结案：优先「是否结案」；否则 NG 且无结案日期（对齐三级异常登记）。"""
+    if data.empty:
+        return pd.Series(dtype=bool)
+    if "是否结案" in data.columns:
+        return data["是否结案"].map(_is_open_close_status)
+    if not judge_col:
+        return pd.Series(False, index=data.index)
+    ng = data[judge_col].map(_is_ng)
+    if "结案日期" in data.columns:
+        return ng & ~data["结案日期"].map(_has_close_date)
+    return ng
+
+
 def _sampling_monthly_trend(df: pd.DataFrame) -> list[dict[str, Any]]:
     data = _prepare_oqc_df(df)
     if data.empty:
@@ -253,17 +292,19 @@ def _sampling_monthly_trend(df: pd.DataFrame) -> list[dict[str, Any]]:
         total = int(len(sub))
         ng = int(sub[judge_col].map(_is_ng).sum()) if judge_col else 0
         ok = total - ng
-        closed = 0
-        if "是否结案" in sub.columns:
-            closed = int(sub["是否结案"].map(_is_closed_close_status).sum())
+        unclosed = int(_sampling_unclosed_mask(sub, judge_col).sum())
+        closed_exc = max(0, ng - unclosed)
         rows.append(
             {
                 "month": month,
                 "abnormal": ng,
                 "completed": ok,
                 "total": total,
-                "closed": closed,
-                "close_rate": _safe_rate(closed, total) if "是否结案" in sub.columns else _safe_rate(ok, total),
+                "closed": closed_exc,
+                # 抽检趋势线：用 OK 率（含 OK1/OK2）；另带回未结案 NG 供前端区分
+                "close_rate": _safe_rate(ok, total),
+                "unclosed_ng": unclosed,
+                "metric": "ok_rate",
             }
         )
     return rows
@@ -274,13 +315,7 @@ def _sampling_open_items(df: pd.DataFrame, *, sort: str) -> list[dict[str, Any]]
     if data.empty:
         return []
     judge_col = _resolve_judge_col(data)
-    if "是否结案" in data.columns:
-        mask = data["是否结案"].map(_is_open_close_status)
-    elif judge_col:
-        mask = data[judge_col].map(_is_ng)
-    else:
-        return []
-
+    mask = _sampling_unclosed_mask(data, judge_col)
     open_df = data.loc[mask].copy()
     if open_df.empty:
         return []
@@ -288,13 +323,24 @@ def _sampling_open_items(df: pd.DataFrame, *, sort: str) -> list[dict[str, Any]]
     items: list[dict[str, Any]] = []
     for idx, row in open_df.iterrows():
         judge = str(row.get(judge_col) or "—").strip() if judge_col else "—"
+        model = str(row.get("机种") or row.get("部番") or row.get("系列") or "—").strip() or "—"
+        phen = str(row.get("现象") or "").strip()
+        title = f"{model} · {phen}" if phen else model
+        unit = str(row.get("责任单位") or row.get("送检单位") or "—").strip() or "—"
+        inspector = str(row.get("检验员") or "").strip()
+        status = "异常未结案" if judge.upper().startswith("NG") else str(row.get("是否结案") or judge).strip()
+        if inspector:
+            status = f"{status} · {inspector}"
+        sid = str(row.get("送检单号") or row.get("抽检单号") or "").strip()
+        if not sid or sid.lower() in {"nan", "none", "nat", "null"}:
+            sid = _row_id(row, idx)
         items.append(
             {
-                "id": _row_id(row, idx),
+                "id": sid,
                 "date": _fmt_date(row.get("日期")),
-                "title": str(row.get("系列") or row.get("机种") or "—").strip() or "—",
-                "status": str(row.get("是否结案") or judge).strip(),
-                "unit": str(row.get("送检单位") or "—").strip(),
+                "title": title,
+                "status": status,
+                "unit": unit,
                 "extra": judge,
             }
         )
@@ -307,28 +353,37 @@ def _sampling_summary(df: pd.DataFrame) -> dict[str, Any]:
     data = _prepare_oqc_df(df)
     total = int(len(data))
     judge_col = _resolve_judge_col(data)
-    ng = int(data[judge_col].map(_is_ng).sum()) if judge_col and not data.empty else 0
-    ok = total - ng
+    buckets = {"OK": 0, "OK1": 0, "OK2": 0, "NG": 0}
+    if judge_col and not data.empty:
+        for raw in data[judge_col].tolist():
+            buckets[_normalize_verdict_bucket(raw)] += 1
+    else:
+        buckets["OK"] = total
+    ng = buckets["NG"]
+    ok_all = buckets["OK"] + buckets["OK1"] + buckets["OK2"]
     ng_rate = _safe_rate(ng, total)
-    open_count = 0
-    close_rate = None
-    if "是否结案" in data.columns and not data.empty:
-        open_count = int(data["是否结案"].map(_is_open_close_status).sum())
-        closed = int(data["是否结案"].map(_is_closed_close_status).sum())
-        close_rate = _safe_rate(closed, total)
+    unclosed = int(_sampling_unclosed_mask(data, judge_col).sum()) if not data.empty else 0
+    close_rate = _safe_rate(max(0, ng - unclosed), ng) if ng else None
+
+    pie = [
+        {"name": "正常 OK", "value": buckets["OK"]},
+        {"name": "免检 OK1", "value": buckets["OK1"]},
+        {"name": "特采 OK2", "value": buckets["OK2"]},
+        {"name": "不良 NG", "value": ng},
+    ]
+    pie = [p for p in pie if p["value"] > 0] or [{"name": "暂无数据", "value": 0}]
 
     return {
         "total": total,
-        "closed": ok,
-        "open": ng,
+        "closed": ok_all,
+        "open": unclosed if unclosed else ng,
         "close_rate": close_rate,
         "ng_rate": ng_rate,
-        "pie": [
-            {"name": "OK", "value": ok},
-            {"name": "NG", "value": ng},
-        ],
+        "pie": pie,
         "pie_metric": "ng_rate",
         "pie_center": f"{(ng_rate or 0) * 100:.1f}%" if total else "—",
+        "list_label": "NG 未结案清单",
+        "trend_labels": {"abnormal": "NG件数", "completed": "OK件数", "rate": "OK率"},
     }
 
 
@@ -356,6 +411,12 @@ def build_module_monitor(
             "pie": [],
             "pie_metric": "close_rate",
             "pie_center": "—",
+            "list_label": "NG 未结案清单" if module_key == "sampling" else "未结案清单",
+            "trend_labels": (
+                {"abnormal": "NG件数", "completed": "OK件数", "rate": "OK率"}
+                if module_key == "sampling"
+                else {"abnormal": "异常件数", "completed": "完成件数", "rate": "结案率"}
+            ),
         },
         "monthly_trend": [],
         "open_items": [],

@@ -300,10 +300,10 @@ def _inspection_dict(c: SamplingInspection, sub: SamplingSubmission) -> dict[str
 
 
 def _is_submission_ok(inspections: list[SamplingInspection]) -> bool:
-    """与列表状态 OK 一致：有抽检且无不良。"""
+    """与列表状态 OK 一致：有抽检且判定均为 OK/OK1/OK2（含特采、免检）。"""
     if not inspections:
         return False
-    return not any(len(c.defects or []) > 0 for c in inspections)
+    return all(_verdict_is_ok(c.verdict) for c in inspections)
 
 
 def _inspect_qty(inspections: list[SamplingInspection]) -> int | None:
@@ -686,6 +686,12 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "", dep
     qty = _int(payload.get("送检数量"))
     if qty is None:
         raise ValueError("请填写送检数量")
+    urgent = _text(payload.get("是否紧急出货"))
+    if not urgent:
+        raise ValueError("请选择是否紧急出货")
+    submitter = _text(payload.get("送检员"))
+    if not submitter:
+        raise ValueError("请填写送检员")
 
     department = dept or _text(payload.get("送检单位"))
     batch_seq = _int(payload.get("同批送检次数"))
@@ -704,11 +710,11 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "", dep
         submit_type=_text(payload.get("送检类型")) or "正常送检",
         qty=qty,
         batch_seq=batch_seq,
-        urgent=_text(payload.get("是否紧急出货")),
+        urgent=urgent,
         remark=_text(payload.get("层别备注")),
         confirmer=_text(payload.get("确认者")),
         room_owner=_text(payload.get("课室负责人")),
-        submitter=_text(payload.get("送检员")),
+        submitter=submitter,
         version=1,
         created_by=user_id,
         created_at=_now(),
@@ -769,17 +775,25 @@ def update_submission(wid, item, sid, payload, user_id, db, user_label: str = ""
         record.business_unit = resolve_business_unit(db, part_no)
     record.submit_type = _text(payload.get("送检类型")) or record.submit_type or "正常送检"
     record.qty = _int(payload.get("送检数量"))
+    if record.qty is None:
+        raise ValueError("请填写送检数量")
+    urgent = _text(payload.get("是否紧急出货"))
+    if not urgent:
+        raise ValueError("请选择是否紧急出货")
+    submitter = _text(payload.get("送检员"))
+    if not submitter:
+        raise ValueError("请填写送检员")
     batch_seq = _int(payload.get("同批送检次数"))
     if day_changed or part_changed:
         batch_seq = _next_batch_seq(db, project.id, part_no, day, exclude_id=record.id)
     elif batch_seq is None:
         batch_seq = record.batch_seq
     record.batch_seq = batch_seq
-    record.urgent = _text(payload.get("是否紧急出货"))
+    record.urgent = urgent
     record.remark = _text(payload.get("层别备注"))
     record.confirmer = _text(payload.get("确认者"))
     record.room_owner = _text(payload.get("课室负责人"))
-    record.submitter = _text(payload.get("送检员"))
+    record.submitter = submitter
     record.version = int(record.version or 1) + 1
     record.updated_at = _now()
     _audit(db, user_id, "sampling_submission", record.code, "update", payload)
@@ -822,6 +836,33 @@ def _apply_inspection(defects: list[dict[str, Any]]) -> tuple[list[SamplingDefec
     return rows, total
 
 
+# 判定四档：正常 OK / 不良 NG / 特采 OK2 / 免检 OK1
+_VERDICT_OK = frozenset({"OK", "OK1", "OK2"})
+
+
+def _resolve_verdict(payload: dict[str, Any], defect_count: int) -> str:
+    """优先用前端手选判定；未传时按不良条数自动 OK / NG / NG×N。"""
+    raw = _text(payload.get("判定") or payload.get("verdict")).upper()
+    if raw in _VERDICT_OK:
+        return raw
+    if raw == "NG" or raw.startswith("NG"):
+        if defect_count > 1:
+            return f"NG×{defect_count}"
+        return "NG"
+    if defect_count <= 0:
+        return "OK"
+    return "NG" if defect_count == 1 else f"NG×{defect_count}"
+
+
+def _verdict_is_ng(verdict: str | None) -> bool:
+    return _text(verdict).upper().startswith("NG")
+
+
+def _verdict_is_ok(verdict: str | None) -> bool:
+    v = _text(verdict).upper()
+    return bool(v) and v.startswith("OK")
+
+
 def _inspector_overlap(existing: str, incoming: str) -> str | None:
     """若两边检验员名单有交集，返回冲突姓名。"""
     left = set(_split_parts(existing))
@@ -859,7 +900,7 @@ def add_inspection(wid, item, sid, payload, user_id, db, user_label: str = "") -
         function_qty=_int(payload.get("机能抽检数量")),
         defect_qty=total if count else None,
         defect_rate=f"{total / appearance:.6f}" if (count and appearance) else "0",
-        verdict=("NG" if count == 1 else f"NG×{count}") if count else "OK",
+        verdict=_resolve_verdict(payload, count),
         version=1,
         created_by=user_id,
         created_at=_now(),
@@ -910,7 +951,7 @@ def update_inspection(wid, item, iid, payload, user_id, db, user_label: str = ""
     inspection.function_qty = _int(payload.get("机能抽检数量"))
     inspection.defect_qty = total if count else None
     inspection.defect_rate = f"{total / appearance:.6f}" if (count and appearance) else "0"
-    inspection.verdict = ("NG" if count == 1 else f"NG×{count}") if count else "OK"
+    inspection.verdict = _resolve_verdict(payload, count)
     inspection.version = int(inspection.version or 1) + 1
     inspection.updated_at = _now()
     inspection.defects = defects
@@ -1088,7 +1129,7 @@ def _sync_oqc(db: Session, item: dict[str, Any], project: Project, sub: Sampling
         "room_owner": fresh.room_owner,
         "code": fresh.code,
     }
-    batch_failed = any(item_insp["defects"] for item_insp in inspections)
+    batch_failed = any(_verdict_is_ng(item_insp.get("verdict")) for item_insp in inspections)
     frames = item.get("frames") or {}
     payloads: list[dict[str, Any]] = []
     for index, insp in enumerate(inspections):

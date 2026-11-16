@@ -127,7 +127,11 @@
                 <td class="num">{{ c.合格批 ? 1 : 0 }}</td>
                 <td class="num">{{ rateText(c.合格批率) }}</td>
                 <td>
-                  <span class="smp-badge" :class="isNg(c.判定) ? 'smp-badge-bad' : 'smp-badge-ok'">
+                  <span
+                    class="smp-badge"
+                    :class="judgeBadgeClass(c.判定)"
+                    :title="judgeTitle(c.判定)"
+                  >
                     {{ c.判定 || "-" }}
                   </span>
                 </td>
@@ -231,7 +235,7 @@
               <span>不良明细（归属检验员：{{ formatInspectors(block) || "未填" }}）</span>
               <button type="button" class="smp-link" @click="addDefect(bi)">+ 添加不良</button>
             </div>
-            <p v-if="!block.defects.length" class="smp-hint">无不良可不填，判定为 OK</p>
+            <p v-if="!block.defects.length" class="smp-hint">无不良可不填；判定可选手选（默认正常 OK）</p>
             <div v-for="(d, i) in block.defects" :key="i" class="smp-defect-row">
               <label class="smp-field">
                 <span>不良属性</span>
@@ -275,10 +279,14 @@
             <div class="smp-chips" style="margin-top: 10px">
               <span>不良数量<strong>{{ blockPreview(block).total }}</strong></span>
               <span>不良率<strong>{{ rateText(blockPreview(block).rate) }}</strong></span>
-              <span>
+              <label class="smp-judge-pick">
                 判定
-                <strong :class="blockPreview(block).total ? 'bad' : 'ok'">{{ blockPreview(block).judge }}</strong>
-              </span>
+                <select v-model="block.判定" :class="judgeSelectClass(block.判定)">
+                  <option v-for="o in judgeOptions" :key="o.value" :value="o.value">
+                    {{ o.label }}
+                  </option>
+                </select>
+              </label>
             </div>
           </div>
 
@@ -432,6 +440,13 @@ const resultOptions = [
   { key: "ok", label: "OK" },
   { key: "ng", label: "NG" },
 ];
+/** 判定四档：中文业务名 → 落库代码 */
+const judgeOptions = [
+  { value: "OK", label: "正常 · OK" },
+  { value: "NG", label: "不良 · NG" },
+  { value: "OK2", label: "特采 · OK2" },
+  { value: "OK1", label: "免检 · OK1" },
+];
 const presetOptions = [
   { key: "", label: "不限日期" },
   { key: "today", label: "今天" },
@@ -442,6 +457,50 @@ const exporting = ref(false);
 
 const rows = computed(() => flattenInspections(entries.value));
 const isNg = (judge) => String(judge || "").toUpperCase().startsWith("NG");
+
+function normalizeJudge(judge) {
+  const v = String(judge || "").trim().toUpperCase();
+  if (v === "OK1" || v === "OK2" || v === "OK") return v;
+  if (v.startsWith("NG")) return "NG";
+  return "OK";
+}
+
+function judgeTitle(judge) {
+  const v = normalizeJudge(judge);
+  const hit = judgeOptions.find((o) => o.value === v);
+  return hit ? hit.label : "";
+}
+
+function judgeBadgeClass(judge) {
+  const v = normalizeJudge(judge);
+  if (v === "NG") return "smp-badge-bad";
+  if (v === "OK1") return "smp-badge-ok1";
+  if (v === "OK2") return "smp-badge-ok2";
+  return "smp-badge-ok";
+}
+
+function judgeSelectClass(judge) {
+  const v = normalizeJudge(judge);
+  if (v === "NG") return "bad";
+  if (v === "OK1") return "ok1";
+  if (v === "OK2") return "ok2";
+  return "ok";
+}
+
+function filledDefectCount(block) {
+  return (block?.defects || []).filter(
+    (d) => d.不良位置 || d.现象 || d.数量 !== "" || d.不良属性,
+  ).length;
+}
+
+/** 有/无不良时，仅在「正常/不良」之间轻量联动；特采/免检不自动改。 */
+function syncJudgeWithDefects(block) {
+  const n = filledDefectCount(block);
+  const cur = normalizeJudge(block.判定);
+  if (n > 0 && cur === "OK") block.判定 = "NG";
+  else if (n === 0 && cur === "NG") block.判定 = "OK";
+}
+
 const rateText = (v) =>
   v == null || v === "" || Number.isNaN(Number(v)) ? "-" : `${(Number(v) * 100).toFixed(1)}%`;
 
@@ -578,7 +637,7 @@ function submissionOptionLabel(s) {
 }
 
 function emptyBlock() {
-  return { 外观抽检数量: "", 机能抽检数量: "", inspectors: [""], defects: [] };
+  return { 外观抽检数量: "", 机能抽检数量: "", inspectors: [""], defects: [], 判定: "OK" };
 }
 
 function blankForm() {
@@ -594,7 +653,7 @@ function blockPreview(block) {
   return {
     total,
     rate: appearance > 0 ? total / appearance : null,
-    judge: filled.length ? (filled.length === 1 ? "NG" : `NG×${filled.length}`) : "OK",
+    judge: normalizeJudge(block.判定),
   };
 }
 
@@ -606,14 +665,36 @@ function flash(message) {
 }
 
 async function load(silent = false) {
-  if (!props.workbookId) return;
+  if (!props.workbookId) {
+    console.warn("[抽检登记] load 跳过：workbookId 为空", { silent });
+    return;
+  }
   if (!silent) loading.value = true;
   error.value = "";
+  const prevCount = flattenInspections(entries.value).length;
   try {
     const data = await loadSampling(props.workbookId);
-    entries.value = data.entries || [];
+    const next = data.entries || [];
+    const nextCount = flattenInspections(next).length;
+    console.log("[抽检登记] load 完成", {
+      silent,
+      workbookId: props.workbookId,
+      prevInspections: prevCount,
+      nextSubmissions: next.length,
+      nextInspections: nextCount,
+      dept: data.dept ?? "(未返回)",
+      keys: data && typeof data === "object" ? Object.keys(data) : [],
+    });
+    // 防护：若刷新结果异常变空，保留旧数据并告警（避免「保存后瞬间清空」）
+    if (prevCount > 0 && nextCount === 0) {
+      console.warn("[抽检登记] 刷新结果为空，保留旧列表，请检查 /sampling/entries", data);
+      error.value = "刷新结果为空，已保留当前列表；请点「刷新」或查看控制台";
+      return;
+    }
+    entries.value = next;
     options.value = data.options || {};
   } catch (err) {
+    console.error("[抽检登记] load 失败", err);
     error.value = err.message;
   } finally {
     if (!silent) loading.value = false;
@@ -647,6 +728,7 @@ function openEdit(c) {
         机能抽检数量: c.机能抽检数量 ?? "",
         inspectors: names.length ? names : [""],
         defects: (c.不良组 || []).map((d) => ({ ...d })),
+        判定: normalizeJudge(c.判定),
       },
     ],
   };
@@ -681,11 +763,15 @@ function removeInspector(bi, ii) {
 }
 
 function addDefect(bi) {
-  form.value.blocks[bi].defects.push({ 不良属性: "", 不良位置: "", 现象: "", 数量: "" });
+  const block = form.value.blocks[bi];
+  block.defects.push({ 不良属性: "", 不良位置: "", 现象: "", 数量: "" });
+  syncJudgeWithDefects(block);
 }
 
 function removeDefect(bi, i) {
-  form.value.blocks[bi].defects.splice(i, 1);
+  const block = form.value.blocks[bi];
+  block.defects.splice(i, 1);
+  syncJudgeWithDefects(block);
 }
 
 function validateBlockInspectors(block, label = "本组") {
@@ -707,10 +793,18 @@ async function save() {
         外观抽检数量: block.外观抽检数量,
         机能抽检数量: block.机能抽检数量,
         检验员: joined,
+        判定: normalizeJudge(block.判定),
         defects: block.defects,
       };
       if (modal.value.version != null) payload.expected_version = modal.value.version;
-      await updateInspection(props.workbookId, modal.value.id, payload);
+      console.log("[抽检登记] 保存(修改)", { iid: modal.value.id, 判定: payload.判定 });
+      const updated = await updateInspection(props.workbookId, modal.value.id, payload);
+      // 旧包 bug：曾把 update 响应的 .entries（实际没有）写成 []，导致列表瞬间清空
+      if (updated && !Array.isArray(updated.entries)) {
+        console.log("[抽检登记] 修改接口未返回 entries（正常），改为重新 load", {
+          keys: Object.keys(updated || {}),
+        });
+      }
       await load(true);
       flash(`已保存：${joined} / ${form.value.sid}`);
     } else {
@@ -724,18 +818,31 @@ async function save() {
         throw new Error("同一送检单下检验员不能重复");
       }
       for (const block of form.value.blocks) {
-        await addInspection(props.workbookId, form.value.sid, {
+        console.log("[抽检登记] 保存(新建)", {
+          sid: form.value.sid,
+          检验员: joinInspectors(block),
+          判定: normalizeJudge(block.判定),
+        });
+        const created = await addInspection(props.workbookId, form.value.sid, {
           外观抽检数量: block.外观抽检数量,
           机能抽检数量: block.机能抽检数量,
           检验员: joinInspectors(block),
+          判定: normalizeJudge(block.判定),
           defects: block.defects,
         });
+        if (created && !Array.isArray(created.entries)) {
+          console.log("[抽检登记] 新建接口未返回 entries（正常），改为重新 load", {
+            keys: Object.keys(created || {}),
+            inspectionKeys: created.inspection ? Object.keys(created.inspection) : [],
+          });
+        }
       }
       await load(true);
       flash(`已保存 ${form.value.blocks.length} 组抽检 / ${form.value.sid}`);
     }
     closeModal();
   } catch (err) {
+    console.error("[抽检登记] 保存失败", err);
     modal.value.error = err.message;
     if (String(err.message).includes("刷新")) await load();
   } finally {
@@ -821,4 +928,24 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   color: #5d645a;
   font-weight: 600;
 }
+.smp-judge-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.smp-judge-pick select {
+  min-width: 132px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #c5cfc0;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2b3028;
+}
+.smp-judge-pick select.ok { color: #3a6b28; border-color: #9bb88a; background: #f3f9ef; }
+.smp-judge-pick select.ok1 { color: #7a6b00; border-color: #d6c84a; background: #fffce8; }
+.smp-judge-pick select.ok2 { color: #8a5a00; border-color: #e0a84a; background: #fff6e8; }
+.smp-judge-pick select.bad { color: #b03a2e; border-color: #e0a39c; background: #fdf1ef; }
 </style>
