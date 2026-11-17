@@ -156,13 +156,38 @@ const displayRows = computed(() => {
   return doubled.map((row, i) => ({ ...row, _key: `${row.id}-${i}` }));
 });
 
+/** 暗紫大屏上可读的语义色：结案/OK 偏青，未结案/NG 偏琥珀或珊瑚 */
+const PIE_SLICE_COLOR = {
+  已结案: "#6ec8b8",
+  未结案: "#f0b429",
+  跟进中: "#7ba3d4",
+  "正常 OK": "#6ec8b8",
+  "免检 OK1": "#8fa3c4",
+  "特采 OK2": "#c4a574",
+  "不良 NG": "#e8898a",
+  暂无数据: "rgba(255,255,255,.14)",
+};
+
+function colorPieSlices(slices) {
+  return slices.map((s, i) => ({
+    ...s,
+    itemStyle: {
+      color: PIE_SLICE_COLOR[s.name] || ["#6ec8b8", "#f0b429", "#7ba3d4", "#c4a574"][i % 4],
+    },
+  }));
+}
+
 const pieChart = computed(() => {
   const panel = currentPanel.value;
   const slices = (panel?.summary?.pie || []).filter((s) => s.value > 0);
   const center = panel?.summary?.pie_center || "—";
+  const data = slices.length
+    ? colorPieSlices(slices)
+    : [{ name: "暂无数据", value: 1, itemStyle: { color: PIE_SLICE_COLOR["暂无数据"] } }];
   return {
     tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
     legend: { bottom: 0, type: "scroll" },
+    color: data.map((d) => d.itemStyle.color),
     series: [
       {
         type: "pie",
@@ -170,8 +195,8 @@ const pieChart = computed(() => {
         center: ["50%", "46%"],
         avoidLabelOverlap: true,
         label: { show: true, formatter: "{b}\n{d}%", fontSize: 11 },
-        data: slices.length ? slices : [{ name: "暂无数据", value: 1, itemStyle: { color: "rgba(255,255,255,.12)" } }],
-        itemStyle: { borderColor: "rgba(30,18,56,.35)", borderWidth: 2 },
+        data,
+        itemStyle: { borderColor: "rgba(20,12,40,.55)", borderWidth: 2 },
       },
       {
         type: "pie",
@@ -185,7 +210,7 @@ const pieChart = computed(() => {
             b: { fontSize: 12, color: "rgba(237,233,254,.62)", lineHeight: 18 },
           },
         },
-        data: [{ value: 1, name: "" }],
+        data: [{ value: 1, name: "", itemStyle: { color: "transparent" } }],
         silent: true,
       },
     ],

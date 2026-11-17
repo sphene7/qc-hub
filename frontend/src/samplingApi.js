@@ -130,6 +130,7 @@ export function flattenInspections(entries) {
         事业部: c.事业部 || e.事业部,
         送检单位: e.送检单位,
         送检数量: e.送检数量,
+        是否紧急出货: c.是否紧急出货 || e.是否紧急出货 || "",
         submission: e,
       });
     }
