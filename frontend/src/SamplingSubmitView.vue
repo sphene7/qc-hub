@@ -187,16 +187,15 @@
               </label>
               <label class="smp-field">
                 <span>事业部</span>
-                <ComboField v-model="form.事业部" :options="options.事业部 || []" placeholder="按部番自动匹配" />
+                <input v-model="form.事业部" placeholder="按部番自动匹配" />
               </label>
               <label class="smp-field">
                 <span>送检单位</span>
-                <input v-if="dept" v-model="form.送检单位" readonly class="locked" />
-                <ComboField
-                  v-else
+                <input
                   v-model="form.送检单位"
-                  :options="options.送检单位 || []"
-                  placeholder="选择或输入送检单位"
+                  :readonly="Boolean(dept)"
+                  :class="{ locked: Boolean(dept) }"
+                  placeholder="按部番自动带出，可改"
                 />
               </label>
               <label class="smp-field">
@@ -224,19 +223,11 @@
               </label>
               <label class="smp-field">
                 <span>确认者</span>
-                <ComboField
-                  v-model="form.确认者"
-                  :options="options.确认者 || []"
-                  placeholder="选择或输入确认者"
-                />
+                <input v-model="form.确认者" placeholder="按部番自动带出，可改" />
               </label>
               <label class="smp-field">
                 <span>课室负责人</span>
-                <ComboField
-                  v-model="form.课室负责人"
-                  :options="options.课室负责人 || []"
-                  placeholder="选择或输入课室负责人"
-                />
+                <input v-model="form.课室负责人" placeholder="随送检单位自动带出，可改" />
               </label>
               <label class="smp-field">
                 <span>送检员<span class="smp-required">*</span></span>
