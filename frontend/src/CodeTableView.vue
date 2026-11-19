@@ -351,15 +351,29 @@
           <form class="editor-body" @submit.prevent="saveOqcDefectEditor">
             <label v-if="oqcDefectIntent !== 'minor'" class="field">
               <span>{{ oqcDefectIntent === 'major-edit' ? '大类名称' : '大类' }}</span>
+              <select
+                v-if="oqcCategorySelectMode"
+                v-model="formOqcCategory"
+                required
+                class="field-select"
+              >
+                <option disabled value="">请选择目标大类</option>
+                <option v-for="cat in oqcCategorySelectOptions" :key="cat" :value="cat">{{ cat }}</option>
+              </select>
               <input
+                v-else
                 v-model.trim="formOqcCategory"
                 required
                 list="oqc-category-options"
                 placeholder="不良现象大类名称"
+                :readonly="oqcCategoryLocked"
+                :class="{ locked: oqcCategoryLocked }"
               />
               <datalist id="oqc-category-options">
                 <option v-for="cat in oqcDefectCategories" :key="cat" :value="cat" />
               </datalist>
+              <small v-if="oqcCategorySelectMode" class="field-hint">从已有大类中选择，保存后即移动到该大类</small>
+              <small v-else-if="oqcCategoryLocked" class="field-hint">跨类移动需「跨类移动」权限（如项目主管）</small>
             </label>
             <label v-if="oqcDefectIntent === 'minor' || oqcDefectIntent === 'full'" class="field">
               <span>不良描述（现象）</span>
@@ -801,6 +815,7 @@ const props = defineProps({
   spec: Object,
   sheetName: { type: String, default: "代码" },
   canEdit: { type: Boolean, default: false },
+  canReclassify: { type: Boolean, default: false },
   canHandle: { type: Boolean, default: false },
 });
 
@@ -1370,6 +1385,29 @@ const oqcDefectDialogTitle = computed(() => {
   return "添加不良描述";
 });
 
+/** 编辑已有不良描述时，无跨类权限则锁定大类（仅可改描述） */
+const oqcCategoryLocked = computed(
+  () => Boolean(editingOqcDefect.value) && oqcDefectIntent.value === "full" && !props.canReclassify,
+);
+
+/** 有跨类权限编辑已有描述：大类用下拉选择目标 */
+const oqcCategorySelectMode = computed(
+  () => Boolean(editingOqcDefect.value) && oqcDefectIntent.value === "full" && props.canReclassify,
+);
+
+const oqcCategorySelectOptions = computed(() => {
+  const set = new Set(
+    (oqcDefectCategories.value || [])
+      .map((c) => String(c || "").trim())
+      .filter(Boolean),
+  );
+  const cur = String(
+    formOqcCategory.value || editingOqcDefect.value?.category || "",
+  ).trim();
+  if (cur) set.add(cur);
+  return [...set].sort((a, b) => a.localeCompare(b, "zh-CN"));
+});
+
 const oqcDefectCategoryGroups = computed(() => {
   const map = new Map();
   for (const cat of oqcDefectCategories.value) {
@@ -1870,6 +1908,14 @@ async function saveOqcDefectEditor() {
         ),
       });
     } else {
+      if (editingOqcDefect.value && !props.canReclassify) {
+        const original = String(editingOqcDefect.value.category || "").trim();
+        if (String(formOqcCategory.value || "").trim() !== original) {
+          oqcEditorError.value = "无跨类移动权限，不能修改大类";
+          oqcSaving.value = false;
+          return;
+        }
+      }
       const body = oqcBody({
         category: formOqcCategory.value,
         // 新增时不传代码，后端自动编号；编辑时保留原内部编号
@@ -3527,11 +3573,24 @@ watch(oqcModelOwnerFilterModelOptions, (opts) => {
   font-size: 13px;
 }
 
-.field input {
+.field input,
+.field-select {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 13px;
+  background: #fff;
+}
+
+.field-select {
+  width: 100%;
+  cursor: pointer;
+}
+
+.field input.locked {
+  background: #f3f4f6;
+  color: #6b7280;
+  cursor: not-allowed;
 }
 
 .field-hint {

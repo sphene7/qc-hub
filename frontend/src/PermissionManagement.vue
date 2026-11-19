@@ -235,6 +235,7 @@ function permChips(row) {
     if (p.submit) chips.push("送检");
     if (p.inspect) chips.push("抽检");
     if (p.handle) chips.push("异常");
+    if (p.reclassify) chips.push("跨类移动");
   }
   return chips;
 }
@@ -252,6 +253,7 @@ function normalizeGrant(g) {
       submit: !!p.submit,
       inspect: !!p.inspect,
       handle: !!p.handle,
+      reclassify: !!p.reclassify,
       dept: p.dept || "",
     },
   };

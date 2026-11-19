@@ -229,6 +229,7 @@ class CrudPermissionsBody(BaseModel):
     submit: Optional[bool] = None   # 送检登记
     inspect: Optional[bool] = None  # 抽检登记
     handle: Optional[bool] = None   # 异常处理
+    reclassify: Optional[bool] = None  # 不良描述跨大类移动
     dept: Optional[str] = None      # 送检数据范围（空 = 全部）
 
 
@@ -1064,20 +1065,57 @@ DEFAULT_ROLES = [
     {"name": "送检员", "description": "登记送检单，只看本课室", "permissions": {"read": True, "create": True, "update": True, "submit": True}},
     {"name": "检验员", "description": "登记抽检与不良", "permissions": {"read": True, "create": True, "update": True, "inspect": True}},
     {"name": "品质", "description": "处理异常（OA/对策/结案）", "permissions": {"read": True, "create": True, "update": True, "handle": True}},
-    {"name": "项目主管", "description": "全部权限", "permissions": {"read": True, "create": True, "update": True, "delete": True, "submit": True, "inspect": True, "handle": True}},
+    {
+        "name": "项目主管",
+        "description": "全部权限",
+        "permissions": {
+            "read": True,
+            "create": True,
+            "update": True,
+            "delete": True,
+            "submit": True,
+            "inspect": True,
+            "handle": True,
+            "reclassify": True,
+        },
+    },
     {"name": "只读", "description": "仅查看", "permissions": {"read": True}},
 ]
 
 
 def _ensure_roles_seeded(db: Session) -> None:
-    if db.query(Role).count():
+    defaults_by_name = {item["name"]: item["permissions"] for item in DEFAULT_ROLES}
+    if not db.query(Role).count():
+        for item in DEFAULT_ROLES:
+            full = {key: bool(item["permissions"].get(key)) for key in PROJECT_PERMISSION_KEYS}
+            db.add(
+                Role(
+                    name=item["name"],
+                    description=item["description"],
+                    permissions=full,
+                    is_system=True,
+                )
+            )
+        db.commit()
+        log(f"[roles] seeded {len(DEFAULT_ROLES)} roles")
         return
-    for item in DEFAULT_ROLES:
-        full = {key: bool(item["permissions"].get(key)) for key in PROJECT_PERMISSION_KEYS}
-        db.add(Role(name=item["name"], description=item["description"],
-                    permissions=full, is_system=True))
-    db.commit()
-    log(f"[roles] seeded {len(DEFAULT_ROLES)} roles")
+
+    # 旧库补齐缺失权限位（如 reclassify）；内置角色名匹配时用 DEFAULT_ROLES 默认值
+    changed = False
+    for role in db.query(Role).all():
+        perms = dict(role.permissions or {})
+        default_perms = defaults_by_name.get(role.name) or {}
+        dirty = False
+        for key in PROJECT_PERMISSION_KEYS:
+            if key not in perms:
+                perms[key] = bool(default_perms.get(key, False))
+                dirty = True
+        if dirty:
+            role.permissions = perms
+            changed = True
+    if changed:
+        db.commit()
+        log("[roles] patched missing permission keys")
 
 
 @app.get("/api/admin/roles")
@@ -2740,11 +2778,19 @@ def put_oqc_defect(
     item = store.get(wid, db)
     if not item:
         raise HTTPException(404, "工作簿不存在或已过期")
+    old_code = (body.old_code or code or "").strip()
+    new_category = (body.category or "").strip()
+    current_category = code_table_oqc.get_oqc_defect_category(
+        item, code_sheet=body.code_sheet, code=old_code
+    )
+    if current_category is not None and new_category != current_category:
+        if not check_project_permission(db, wid, current_user.id, "reclassify"):
+            raise HTTPException(403, "无跨类移动权限，不能修改大类")
     try:
         result = code_table_oqc.update_oqc_defect(
             item,
             code_sheet=body.code_sheet,
-            old_code=body.old_code or code,
+            old_code=old_code,
             code=body.code,
             desc=body.desc,
             category=body.category,

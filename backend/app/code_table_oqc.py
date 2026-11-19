@@ -554,6 +554,29 @@ def create_oqc_defects_batch(
     return result
 
 
+def get_oqc_defect_category(
+    item: dict[str, Any], *, code_sheet: str | None, code: str
+) -> str | None:
+    """按内部代码查当前大类；找不到返回 None（不误拦异常路径）。"""
+    code = (code or "").strip()
+    if not code:
+        return None
+    spec = item.get("spec") or {}
+    resolved = _resolve_sheet_name(spec, item.get("frames") or {}, code_sheet or "代码")
+    if not resolved:
+        return None
+    code_df = (item.get("frames") or {}).get(resolved)
+    if code_df is None or code_df.empty or "代码" not in code_df.columns:
+        return None
+    mask = _find_defect_mask(code_df, code=code)
+    if not mask.any():
+        return None
+    idx = code_df.index[mask][0]
+    if "大类" not in code_df.columns:
+        return ""
+    return str(code_df.at[idx, "大类"] or "").strip()
+
+
 def update_oqc_defect(
     item: dict[str, Any],
     *,

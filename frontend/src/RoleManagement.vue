@@ -105,6 +105,7 @@ const permFields = [
   { key: "submit", label: "送检", desc: "仅产品抽检：送检登记" },
   { key: "inspect", label: "抽检", desc: "仅产品抽检：抽检登记" },
   { key: "handle", label: "异常", desc: "仅产品抽检：异常处理" },
+  { key: "reclassify", label: "跨类移动", desc: "类别管理：把不良描述改到其他大类" },
 ];
 
 function blankForm() {
@@ -120,6 +121,7 @@ function blankForm() {
       submit: false,
       inspect: false,
       handle: false,
+      reclassify: false,
     },
   };
 }
@@ -133,6 +135,7 @@ function summary(role) {
   if (p.submit) chips.push("送检");
   if (p.inspect) chips.push("抽检");
   if (p.handle) chips.push("异常");
+  if (p.reclassify) chips.push("跨类移动");
   return chips;
 }
 
@@ -185,6 +188,7 @@ function openEdit(role) {
       submit: !!p.submit,
       inspect: !!p.inspect,
       handle: !!p.handle,
+      reclassify: !!p.reclassify,
     },
   };
   modal.value = { open: true, id: role.id, error: "" };
@@ -223,13 +227,14 @@ async function save() {
       name: form.value.name,
       description: form.value.description,
       permissions: {
-        read: !!p.read || editOn || !!p.delete || !!p.submit || !!p.inspect || !!p.handle,
+        read: !!p.read || editOn || !!p.delete || !!p.submit || !!p.inspect || !!p.handle || !!p.reclassify,
         create: editOn,
         update: editOn,
         delete: !!p.delete,
         submit: !!p.submit,
         inspect: !!p.inspect,
         handle: !!p.handle,
+        reclassify: !!p.reclassify,
       },
     };
     const url = modal.value.id ? `/api/admin/roles/${modal.value.id}` : "/api/admin/roles";

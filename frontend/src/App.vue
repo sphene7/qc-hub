@@ -222,6 +222,7 @@
         :workbook-id="workbookId"
         :spec="spec"
         :can-edit="canEditCodeTable"
+        :can-reclassify="!!projectPermissions.reclassify || currentUser?.role === 'super_admin'"
         :can-handle="!!projectPermissions.handle || currentUser?.role === 'super_admin'"
         @updated="onCodeTableUpdated"
       />
@@ -637,10 +638,30 @@ const mainTableSheet = computed(() => {
 const projectPermissions = computed(() => {
   const info = currentProjectInfo.value;
   if (!info) {
-    return { create: false, read: false, update: false, delete: false, inspect: false, submit: false, handle: false, dept: "" };
+    return {
+      create: false,
+      read: false,
+      update: false,
+      delete: false,
+      inspect: false,
+      submit: false,
+      handle: false,
+      reclassify: false,
+      dept: "",
+    };
   }
   if (info.is_owner || info.permissions == null) {
-    return { create: true, read: true, update: true, delete: true, inspect: true, submit: true, handle: true, dept: "" };
+    return {
+      create: true,
+      read: true,
+      update: true,
+      delete: true,
+      inspect: true,
+      submit: true,
+      handle: true,
+      reclassify: true,
+      dept: "",
+    };
   }
   const p = info.permissions || {};
   return {
@@ -651,6 +672,7 @@ const projectPermissions = computed(() => {
     inspect: p.inspect == null ? !!p.update : !!p.inspect,
     submit: p.submit == null ? !!(p.create || p.update) : !!p.submit,
     handle: p.handle == null ? !!p.update : !!p.handle,
+    reclassify: !!p.reclassify,
     dept: p.dept || "",
   };
 });
