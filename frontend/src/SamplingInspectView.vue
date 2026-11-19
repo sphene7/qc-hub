@@ -89,15 +89,16 @@
               <th>不良属性</th>
               <th>不良现象</th>
               <th>不良位置</th>
+              <th>是否紧急出货</th>
               <th class="num">数量</th>
               <th>检验员</th>
               <th>登记人</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="22"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="23"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="22">
+              <td colspan="23">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">🔎</span>
                   没有符合条件的抽检记录
@@ -138,6 +139,14 @@
                 <td>{{ c.不良属性 || "-" }}</td>
                 <td>{{ c.现象 || "-" }}</td>
                 <td>{{ c.不良位置 || "-" }}</td>
+                <td>
+                  <span
+                    v-if="c.是否紧急出货"
+                    class="smp-badge"
+                    :class="c.是否紧急出货 === '是' ? 'smp-badge-warn' : 'smp-badge-muted'"
+                  >{{ c.是否紧急出货 }}</span>
+                  <span v-else>-</span>
+                </td>
                 <td class="num">{{ c.数量 || "-" }}</td>
                 <td>{{ c.检验员 }}</td>
                 <td>{{ c.登记人 || "-" }}</td>
@@ -544,7 +553,7 @@ function exportFiltered() {
       "抽检单号", "日期", "时间", "部番", "机种", "送检类型", "事业部", "送检数量",
       "外观抽检数量", "机能抽检数量", "不良数量", "不良率",
       "抽检批", "合格批", "合格批率", "判定",
-      "不良属性", "不良现象", "不良位置", "数量", "检验员", "登记人",
+      "不良属性", "不良现象", "不良位置", "是否紧急出货", "数量", "检验员", "登记人",
     ];
     const data = list.map((c) => {
       const dt = splitDateTime(c.日期);
@@ -568,6 +577,7 @@ function exportFiltered() {
         c.不良属性,
         c.现象,
         c.不良位置,
+        c.是否紧急出货,
         c.数量,
         c.检验员,
         c.登记人,

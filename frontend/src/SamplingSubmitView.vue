@@ -84,6 +84,7 @@
               <th class="num">送检数量</th>
               <th class="num">检验数量</th>
               <th class="num">同批次数</th>
+              <th>是否紧急出货</th>
               <th class="num">抽检人数</th>
               <th class="num">异常</th>
               <th>状态</th>
@@ -93,9 +94,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="17"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="18"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="17">
+              <td colspan="18">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">📋</span>
                   没有符合条件的送检单
@@ -129,6 +130,14 @@
                 <td class="num">{{ e.送检数量 ?? "-" }}</td>
                 <td class="num">{{ e.检验数量 ?? "-" }}</td>
                 <td class="num">{{ e.同批送检次数 ?? "-" }}</td>
+                <td>
+                  <span
+                    v-if="e.是否紧急出货"
+                    class="smp-badge"
+                    :class="e.是否紧急出货 === '是' ? 'smp-badge-warn' : 'smp-badge-muted'"
+                  >{{ e.是否紧急出货 }}</span>
+                  <span v-else>-</span>
+                </td>
                 <td class="num">{{ (e.抽检 || []).length }}</td>
                 <td class="num">{{ defectCount(e) || "-" }}</td>
                 <td>
@@ -178,16 +187,15 @@
               </label>
               <label class="smp-field">
                 <span>事业部</span>
-                <ComboField v-model="form.事业部" :options="options.事业部 || []" placeholder="按部番自动匹配" />
+                <input v-model="form.事业部" placeholder="按部番自动匹配" />
               </label>
               <label class="smp-field">
                 <span>送检单位</span>
-                <input v-if="dept" v-model="form.送检单位" readonly class="locked" />
-                <ComboField
-                  v-else
+                <input
                   v-model="form.送检单位"
-                  :options="options.送检单位 || []"
-                  placeholder="选择或输入送检单位"
+                  :readonly="Boolean(dept)"
+                  :class="{ locked: Boolean(dept) }"
+                  placeholder="按部番自动带出，可改"
                 />
               </label>
               <label class="smp-field">
@@ -215,19 +223,11 @@
               </label>
               <label class="smp-field">
                 <span>确认者</span>
-                <ComboField
-                  v-model="form.确认者"
-                  :options="options.确认者 || []"
-                  placeholder="选择或输入确认者"
-                />
+                <input v-model="form.确认者" placeholder="按部番自动带出，可改" />
               </label>
               <label class="smp-field">
                 <span>课室负责人</span>
-                <ComboField
-                  v-model="form.课室负责人"
-                  :options="options.课室负责人 || []"
-                  placeholder="选择或输入课室负责人"
-                />
+                <input v-model="form.课室负责人" placeholder="随送检单位自动带出，可改" />
               </label>
               <label class="smp-field">
                 <span>送检员<span class="smp-required">*</span></span>

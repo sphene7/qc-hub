@@ -80,11 +80,21 @@ def create_user(db: Session, username: str, password: str, email: str = None,
 
 # 权限位：
 #   create/update/delete —— 通用增删改（巡检、客诉等模块共用）
-#   submit   —— 送检登记（新增/修改送检单）
-#   inspect  —— 抽检登记（新增/修改抽检记录）
-#   handle   —— 异常登记（OA单号、责任、对策、结案）
-#   dept     —— 非布尔：送检数据范围（空 = 全部；填了课室 = 只看本课室）
-PROJECT_PERMISSION_KEYS = ("create", "read", "update", "delete", "submit", "inspect", "handle")
+#   submit     —— 送检登记（新增/修改送检单）
+#   inspect    —— 抽检登记（新增/修改抽检记录）
+#   handle     —— 异常登记（OA单号、责任、对策、结案）
+#   reclassify —— 类别管理：把不良描述改到其他大类（跨类移动）
+#   dept       —— 非布尔：送检数据范围（空 = 全部；填了课室 = 只看本课室）
+PROJECT_PERMISSION_KEYS = (
+    "create",
+    "read",
+    "update",
+    "delete",
+    "submit",
+    "inspect",
+    "handle",
+    "reclassify",
+)
 
 FULL_CRUD = {key: True for key in PROJECT_PERMISSION_KEYS}
 
@@ -113,6 +123,9 @@ def normalize_crud_permissions(
         base["inspect"] = bool(base.get("update"))
     if "handle" not in provided:
         base["handle"] = bool(base.get("update"))
+    # 跨类移动：旧数据缺省关闭，不按 update 推断
+    if "reclassify" not in provided:
+        base["reclassify"] = False
     if not base["read"]:
         for key in PROJECT_PERMISSION_KEYS:
             if key != "read":
@@ -221,6 +234,8 @@ def check_project_permission(
         return bool(perms.get("inspect"))
     if required_role == "handle":
         return bool(perms.get("handle"))
+    if required_role == "reclassify":
+        return bool(perms.get("reclassify"))
     if required_role == "delete":
         return bool(perms.get("delete"))
     if required_role == "entry":
@@ -403,6 +418,9 @@ def set_user_project_permissions(
         perms["inspect"] = bool(perms["update"])
     if raw.get("handle") is None:
         perms["handle"] = bool(perms["update"])
+    # 跨类移动：未传则保持 False（不按 update 推断）
+    if raw.get("reclassify") is None:
+        perms["reclassify"] = False
     # 任一登记权限都视为可写（巡检/客诉仍走 create/update）
     if perms["submit"] or perms["inspect"] or perms["handle"]:
         perms["create"] = True

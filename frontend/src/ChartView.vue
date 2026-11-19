@@ -103,9 +103,33 @@ function themedOption(option) {
   next.xAxis = Array.isArray(next.xAxis) ? next.xAxis.map(axis) : axis(next.xAxis);
   next.yAxis = Array.isArray(next.yAxis) ? next.yAxis.map(axis) : axis(next.yAxis);
   next.series = (next.series || []).map((series, idx) => {
-    const soft = softenHex(series.itemStyle?.color || series.lineStyle?.color, idx);
     const baseLine = series.lineStyle || {};
     const baseItem = series.itemStyle || {};
+    const isPie = series.type === "pie";
+    // 饼图按扇区上色，禁止整系列强制单色（否则会糊成一块）
+    if (isPie) {
+      const data = Array.isArray(series.data)
+        ? series.data.map((d, i) => {
+            if (!d || typeof d !== "object") return d;
+            const own = d.itemStyle?.color;
+            return {
+              ...d,
+              itemStyle: {
+                ...(d.itemStyle || {}),
+                color: own ? softenHex(own, i) : SCREEN_PALETTE[i % SCREEN_PALETTE.length],
+                opacity: d.itemStyle?.opacity ?? 0.95,
+              },
+            };
+          })
+        : series.data;
+      return {
+        ...series,
+        data,
+        itemStyle: { ...baseItem, opacity: baseItem.opacity ?? 0.95 },
+        label: { ...(series.label || {}), color: "rgba(220, 224, 235, .72)" },
+      };
+    }
+    const soft = softenHex(series.itemStyle?.color || series.lineStyle?.color, idx);
     return {
       ...series,
       itemStyle: { ...baseItem, color: soft, opacity: baseItem.opacity ?? 0.92 },
