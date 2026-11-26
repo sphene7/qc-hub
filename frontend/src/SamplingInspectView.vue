@@ -87,8 +87,10 @@
               <th class="num">合格批率</th>
               <th>判定</th>
               <th>不良属性</th>
+              <th>完成时间</th>
               <th>不良现象</th>
               <th>不良位置</th>
+              <th>复判人</th>
               <th>是否紧急出货</th>
               <th class="num">数量</th>
               <th>检验员</th>
@@ -96,9 +98,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="23"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="25"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="23">
+              <td colspan="25">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">🔎</span>
                   没有符合条件的抽检记录
@@ -137,8 +139,10 @@
                   </span>
                 </td>
                 <td>{{ c.不良属性 || "-" }}</td>
+                <td>{{ c.完成日期 || "-" }}</td>
                 <td>{{ c.现象 || "-" }}</td>
                 <td>{{ c.不良位置 || "-" }}</td>
+                <td>{{ c.复判人 || "-" }}</td>
                 <td>
                   <span
                     v-if="c.是否紧急出货"
@@ -295,6 +299,14 @@
                     {{ o.label }}
                   </option>
                 </select>
+              </label>
+              <label class="smp-field smp-reviewer-field">
+                <span>复判人</span>
+                <ComboField
+                  v-model="block.复判人"
+                  :options="inspectorRoster"
+                  placeholder="选择或输入复判人（可选）"
+                />
               </label>
             </div>
           </div>
@@ -553,7 +565,7 @@ function exportFiltered() {
       "抽检单号", "日期", "时间", "部番", "机种", "送检类型", "事业部", "送检数量",
       "外观抽检数量", "机能抽检数量", "不良数量", "不良率",
       "抽检批", "合格批", "合格批率", "判定",
-      "不良属性", "不良现象", "不良位置", "是否紧急出货", "数量", "检验员", "登记人",
+      "不良属性", "完成时间", "不良现象", "不良位置", "复判人", "是否紧急出货", "数量", "检验员", "登记人",
     ];
     const data = list.map((c) => {
       const dt = splitDateTime(c.日期);
@@ -575,8 +587,10 @@ function exportFiltered() {
         rateText(c.合格批率),
         c.判定,
         c.不良属性,
+        c.完成日期 || "",
         c.现象,
         c.不良位置,
+        c.复判人 || "",
         c.是否紧急出货,
         c.数量,
         c.检验员,
@@ -647,7 +661,7 @@ function submissionOptionLabel(s) {
 }
 
 function emptyBlock() {
-  return { 外观抽检数量: "", 机能抽检数量: "", inspectors: [""], defects: [], 判定: "OK" };
+  return { 外观抽检数量: "", 机能抽检数量: "", inspectors: [""], defects: [], 判定: "OK", 复判人: "" };
 }
 
 function blankForm() {
@@ -739,6 +753,7 @@ function openEdit(c) {
         inspectors: names.length ? names : [""],
         defects: (c.不良组 || []).map((d) => ({ ...d })),
         判定: normalizeJudge(c.判定),
+        复判人: c.复判人 || "",
       },
     ],
   };
@@ -804,6 +819,7 @@ async function save() {
         机能抽检数量: block.机能抽检数量,
         检验员: joined,
         判定: normalizeJudge(block.判定),
+        复判人: String(block.复判人 || "").trim(),
         defects: block.defects,
       };
       if (modal.value.version != null) payload.expected_version = modal.value.version;
@@ -838,6 +854,7 @@ async function save() {
           机能抽检数量: block.机能抽检数量,
           检验员: joinInspectors(block),
           判定: normalizeJudge(block.判定),
+          复判人: String(block.复判人 || "").trim(),
           defects: block.defects,
         });
         if (created && !Array.isArray(created.entries)) {
@@ -942,6 +959,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+.smp-reviewer-field {
+  min-width: 180px;
+  max-width: 240px;
+  margin: 0;
 }
 .smp-judge-pick select {
   min-width: 132px;

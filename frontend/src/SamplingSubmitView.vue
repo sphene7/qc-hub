@@ -75,6 +75,7 @@
             <tr>
               <th class="ops">操作</th>
               <th>送检单号</th>
+              <th>工单号</th>
               <th>送检日期</th>
               <th>部番</th>
               <th>送检类型</th>
@@ -94,9 +95,9 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="18"><div class="smp-empty">加载中…</div></td></tr>
+            <tr v-if="loading"><td colspan="19"><div class="smp-empty">加载中…</div></td></tr>
             <tr v-else-if="!filtered.length">
-              <td colspan="18">
+              <td colspan="19">
                 <div class="smp-empty">
                   <span class="smp-empty-icon">📋</span>
                   没有符合条件的送检单
@@ -121,6 +122,7 @@
                   </button>
                 </td>
                 <td class="mono">{{ e.送检单号 }}</td>
+                <td class="mono">{{ e.工单号 || "-" }}</td>
                 <td>{{ e.送检日期 || e.日期 }}</td>
                 <td class="mono">{{ e.部番 || e.机种 || "-" }}</td>
                 <td>{{ e.送检类型 || "-" }}</td>
@@ -163,6 +165,17 @@
           <div class="smp-section">
             <p class="smp-section-title">送检信息</p>
             <div class="smp-grid">
+              <label class="smp-field full">
+                <span>工单号</span>
+                <input
+                  ref="workOrderInput"
+                  v-model="form.工单号"
+                  placeholder="扫码枪扫入工单号后回车，自动带出部番与数量"
+                  autocomplete="off"
+                  @keydown.enter.prevent="onWorkOrderScan"
+                />
+                <small class="smp-field-hint">支持扫码；解析成功后自动填充部番、送检数量（可再手改）</small>
+              </label>
               <label class="smp-field">
                 <span>送检日期</span>
                 <input v-model="form.日期" type="datetime-local" />
@@ -257,7 +270,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { authFetch } from "./api.js";
 import ComboField from "./ComboField.vue";
@@ -270,6 +283,7 @@ import {
   loadSampling,
   matchKeyword,
   meName,
+  parseWorkOrderScan,
   splitDateTime,
   submissionStatus,
   todayStr,
@@ -300,6 +314,7 @@ const status = ref("all");
 const preset = ref("");
 const modal = ref({ open: false, id: "", error: "", version: null });
 const form = ref(blankForm());
+const workOrderInput = ref(null);
 
 const statusOptions = [
   { key: "all", label: "全部" },
@@ -362,7 +377,7 @@ function exportFiltered() {
   exporting.value = true;
   try {
     const headers = [
-      "送检单号", "送检日期", "送检时间", "送检类型", "部番", "机种", "事业部", "送检单位",
+      "送检单号", "工单号", "送检日期", "送检时间", "送检类型", "部番", "机种", "事业部", "送检单位",
       "送检数量", "检验数量", "同批送检次数", "是否紧急出货", "确认者", "课室负责人", "送检员",
       "层别备注", "抽检人数", "异常", "状态", "完成日期", "完成时间", "登记人",
     ];
@@ -371,6 +386,7 @@ function exportFiltered() {
       const done = splitDateTime(e.完成日期);
       return [
         e.送检单号,
+        e.工单号 || "",
         submit.date,
         submit.time,
         e.送检类型,
@@ -456,6 +472,7 @@ function rememberDept(value) {
 
 function blankForm() {
   return {
+    工单号: "",
     日期: nowLocalStr(),
     送检类型: "",
     部番: "",
@@ -470,6 +487,35 @@ function blankForm() {
     课室负责人: "",
     送检员: "",
   };
+}
+
+async function focusWorkOrder() {
+  await nextTick();
+  workOrderInput.value?.focus?.();
+  workOrderInput.value?.select?.();
+}
+
+async function onWorkOrderScan() {
+  const raw = String(form.value.工单号 || "").trim();
+  if (!raw) return;
+  const parsed = parseWorkOrderScan(raw, options.value.部番 || []);
+  if (parsed.workOrder) form.value.工单号 = parsed.workOrder;
+  let filled = false;
+  if (parsed.partNo) {
+    form.value.部番 = parsed.partNo;
+    await onPartNoChange();
+    filled = true;
+  }
+  if (parsed.qty) {
+    form.value.送检数量 = parsed.qty;
+    filled = true;
+  }
+  if (!filled) {
+    modal.value.error = "已记录工单号，但未能从扫码内容解析部番/数量，请手填或确认条码格式";
+    return;
+  }
+  modal.value.error = "";
+  flash(`已从工单带出${parsed.partNo ? ` 部番 ${parsed.partNo}` : ""}${parsed.qty ? ` 数量 ${parsed.qty}` : ""}`);
 }
 
 /** 同一天、同部番：已有最大同批次数 + 1 */
@@ -586,6 +632,7 @@ function openNew() {
   if (props.dept) form.value.送检单位 = props.dept;
   modal.value = { open: true, id: "", error: "", version: null };
   refreshBatchSeq();
+  focusWorkOrder();
 }
 
 function openEdit(entry) {

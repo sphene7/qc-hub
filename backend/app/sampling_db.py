@@ -287,6 +287,7 @@ def _inspection_dict(c: SamplingInspection, sub: SamplingSubmission) -> dict[str
         "合格批": c.batch_pass,
         "合格批率": _pct(c.batch_rate),
         "判定": c.verdict or "OK",
+        "复判人": c.reviewer or "",
         "不良属性": DEFECT_SEP.join(d["不良属性"] for d in defects) or None,
         "不良位置": DEFECT_SEP.join(d["不良位置"] for d in defects) or None,
         "现象": DEFECT_SEP.join(d["现象"] for d in defects) or None,
@@ -339,6 +340,7 @@ def _submission_dict(s: SamplingSubmission) -> dict[str, Any]:
         "确认者": s.confirmer or "",
         "课室负责人": s.room_owner or "",
         "送检员": s.submitter or "",
+        "工单号": s.work_order or "",
         "完成日期": _iso(s.completed_at) if s.completed_at else "",
         "版本": s.version,
         "登记人": "",
@@ -715,6 +717,7 @@ def create_submission(wid, item, payload, user_id, db, user_label: str = "", dep
         confirmer=_text(payload.get("确认者")),
         room_owner=_text(payload.get("课室负责人")),
         submitter=submitter,
+        work_order=_text(payload.get("工单号")),
         version=1,
         created_by=user_id,
         created_at=_now(),
@@ -794,6 +797,8 @@ def update_submission(wid, item, sid, payload, user_id, db, user_label: str = ""
     record.confirmer = _text(payload.get("确认者"))
     record.room_owner = _text(payload.get("课室负责人"))
     record.submitter = submitter
+    if "工单号" in payload:
+        record.work_order = _text(payload.get("工单号"))
     record.version = int(record.version or 1) + 1
     record.updated_at = _now()
     _audit(db, user_id, "sampling_submission", record.code, "update", payload)
@@ -901,6 +906,7 @@ def add_inspection(wid, item, sid, payload, user_id, db, user_label: str = "") -
         defect_qty=total if count else None,
         defect_rate=f"{total / appearance:.6f}" if (count and appearance) else "0",
         verdict=_resolve_verdict(payload, count),
+        reviewer=_text(payload.get("复判人")),
         version=1,
         created_by=user_id,
         created_at=_now(),
@@ -952,6 +958,7 @@ def update_inspection(wid, item, iid, payload, user_id, db, user_label: str = ""
     inspection.defect_qty = total if count else None
     inspection.defect_rate = f"{total / appearance:.6f}" if (count and appearance) else "0"
     inspection.verdict = _resolve_verdict(payload, count)
+    inspection.reviewer = _text(payload.get("复判人"))
     inspection.version = int(inspection.version or 1) + 1
     inspection.updated_at = _now()
     inspection.defects = defects
@@ -1109,6 +1116,7 @@ def _sync_oqc(db: Session, item: dict[str, Any], project: Project, sub: Sampling
             "defect_qty": insp.defect_qty,
             "defect_rate": insp.defect_rate,
             "verdict": insp.verdict,
+            "reviewer": insp.reviewer,
             "defects": [
                 {"location": d.location, "phenomenon": d.phenomenon, "qty": d.qty, "attr": d.attr}
                 for d in (insp.defects or [])
@@ -1165,6 +1173,8 @@ def _sync_oqc(db: Session, item: dict[str, Any], project: Project, sub: Sampling
             for key in ("不良位置", "现象", "数量", "不良属性"):
                 row[key] = None
         row["检验员"] = insp["inspector"]
+        if "复判人" in row:
+            row["复判人"] = insp.get("reviewer") or None
         row["不良数量"] = insp["defect_qty"]
         row["不良率"] = _pct(insp["defect_rate"])
         row[SENT_FIELD] = 1 if index == 0 else 0

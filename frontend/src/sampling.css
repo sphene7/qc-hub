@@ -242,6 +242,7 @@
 .smp-field textarea { resize: vertical; }
 .smp-field.full { grid-column: 1 / -1; }
 .smp-hint { font-size: 12px; color: #8a9086; }
+.smp-field-hint { display: block; margin-top: 4px; font-size: 11px; color: #8a9086; line-height: 1.35; }
 .smp-required { color: #c0392b; margin-left: 2px; }
 
 .smp-chips { display: flex; gap: 14px; flex-wrap: wrap; padding: 10px 14px; background: var(--smp-bg-soft); border-radius: 8px; font-size: 12.5px; color: #5d645a; }

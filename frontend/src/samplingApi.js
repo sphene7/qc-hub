@@ -131,6 +131,7 @@ export function flattenInspections(entries) {
         送检单位: e.送检单位,
         送检数量: e.送检数量,
         是否紧急出货: c.是否紧急出货 || e.是否紧急出货 || "",
+        完成日期: c.完成日期 || e.完成日期 || "",
         submission: e,
       });
     }
@@ -142,6 +143,75 @@ export function csvEscape(value) {
   const text = value == null ? "" : String(value);
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
+}
+
+/**
+ * 解析扫码枪扫入的工单内容，尽量抽出 工单号 / 部番 / 数量。
+ * 支持：JSON；「部番:xx 数量:n」；分隔符 | , ; tab * /；已知部番子串匹配。
+ */
+export function parseWorkOrderScan(raw, knownParts = []) {
+  const text = String(raw || "").replace(/\r/g, "").trim();
+  if (!text) return { workOrder: "", partNo: "", qty: "" };
+
+  if (text.startsWith("{")) {
+    try {
+      const o = JSON.parse(text);
+      return {
+        workOrder: String(o.工单号 || o.workOrder || o.wo || o.WO || "").trim() || text,
+        partNo: String(o.部番 || o.料号 || o.partNo || o.model || "").trim(),
+        qty: String(o.数量 || o.送检数量 || o.qty || o.Qty || "").trim(),
+      };
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const labeledPart = text.match(/(?:部番|料号|机种)\s*[:=：]\s*([A-Za-z0-9][A-Za-z0-9._-]*)/i);
+  const labeledQty = text.match(/(?:数量|送检数量|qty)\s*[:=：]\s*(\d+)/i);
+  const labeledWo = text.match(/(?:工单号|工单|WO)\s*[:=：]\s*([A-Za-z0-9][A-Za-z0-9._-]*)/i);
+
+  let tokens = text.split(/[|;\t,*\/]+/).map((t) => t.trim()).filter(Boolean);
+  if (tokens.length <= 1) {
+    tokens = text.split(/_{2,}|\s{2,}|\s+/).map((t) => t.trim()).filter(Boolean);
+  }
+
+  const partLike = (t) =>
+    /^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9][A-Za-z0-9-]*$/.test(t) ||
+    /^[A-Za-z0-9]+-[A-Za-z0-9-]+$/.test(t);
+
+  let partNo = labeledPart?.[1] || "";
+  let qty = labeledQty?.[1] || "";
+  let workOrder = labeledWo?.[1] || "";
+
+  if (!partNo && knownParts?.length) {
+    const hit = [...knownParts]
+      .map((p) => String(p || "").trim())
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+      .find((p) => text.includes(p));
+    if (hit) partNo = hit;
+  }
+
+  if (!partNo) {
+    partNo = tokens.find((t) => partLike(t)) || "";
+  }
+
+  if (!qty) {
+    const nums = tokens.filter((t) => /^\d{1,7}$/.test(t) && t !== partNo);
+    if (nums.length) qty = nums[nums.length - 1];
+  }
+
+  // 无显式工单号时：整段扫码内容作为工单号留存；有分隔时优先取非部番/非数量段
+  if (!workOrder) {
+    const other = tokens.find((t) => t !== partNo && t !== String(qty));
+    workOrder = other && tokens.length >= 2 ? other : text;
+  }
+
+  return {
+    workOrder: workOrder || text,
+    partNo,
+    qty: qty ? String(qty) : "",
+  };
 }
 
 /** 把「2026-11-10 20:59」拆成日期、时间两列。 */

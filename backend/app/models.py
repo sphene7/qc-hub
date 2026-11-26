@@ -137,6 +137,7 @@ class SamplingSubmission(Base):
     confirmer = Column(String(50), nullable=True)
     room_owner = Column(String(50), nullable=True)
     submitter = Column(String(50), nullable=True)  # 送检员（业务字段，非系统角色）
+    work_order = Column(String(100), nullable=True, index=True)  # 工单号（扫码枪录入）
     completed_at = Column(DateTime, nullable=True)  # 完成日期：判定 OK 后自动写入
     version = Column(Integer, nullable=False, default=1)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=True)
@@ -173,6 +174,7 @@ class SamplingInspection(Base):
     batch_pass = Column(Integer, nullable=True)
     batch_rate = Column(String(20), nullable=True)
     verdict = Column(String(20), nullable=True)
+    reviewer = Column(String(50), nullable=True)  # 复判人
     version = Column(Integer, nullable=False, default=1)
     created_by = Column(Integer, ForeignKey('users.id'), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
