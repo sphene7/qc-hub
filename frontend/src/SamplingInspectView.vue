@@ -289,23 +289,23 @@
               </label>
               <button type="button" class="smp-link danger" @click="removeDefect(bi, i)">删除</button>
             </div>
-            <div class="smp-chips" style="margin-top: 10px">
+            <div class="smp-chips smp-chips-judge" style="margin-top: 10px">
               <span>不良数量<strong>{{ blockPreview(block).total }}</strong></span>
               <span>不良率<strong>{{ rateText(blockPreview(block).rate) }}</strong></span>
-              <label class="smp-judge-pick">
-                判定
+              <label class="smp-inline-field">
+                <span>判定</span>
                 <select v-model="block.判定" :class="judgeSelectClass(block.判定)">
                   <option v-for="o in judgeOptions" :key="o.value" :value="o.value">
                     {{ o.label }}
                   </option>
                 </select>
               </label>
-              <label class="smp-field smp-reviewer-field">
+              <label class="smp-inline-field smp-reviewer-field">
                 <span>复判人</span>
                 <ComboField
                   v-model="block.复判人"
                   :options="inspectorRoster"
-                  placeholder="选择或输入复判人（可选）"
+                  placeholder="选择或输入（可选）"
                 />
               </label>
             </div>
@@ -955,17 +955,38 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   color: #5d645a;
   font-weight: 600;
 }
-.smp-judge-pick {
+.smp-chips-judge {
+  align-items: center;
+}
+.smp-inline-field {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+  color: #5d645a;
+}
+.smp-inline-field > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .smp-reviewer-field {
-  min-width: 180px;
-  max-width: 240px;
-  margin: 0;
+  min-width: 220px;
+  max-width: 280px;
 }
-.smp-judge-pick select {
+.smp-reviewer-field :deep(.combo-field) {
+  flex: 1;
+  min-width: 0;
+}
+.smp-reviewer-field :deep(input) {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  border: 1px solid #c5cfc0;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+.smp-inline-field select {
   min-width: 132px;
   height: 28px;
   padding: 0 8px;
@@ -975,9 +996,10 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
   font-size: 12.5px;
   font-weight: 600;
   color: #2b3028;
+  box-sizing: border-box;
 }
-.smp-judge-pick select.ok { color: #3a6b28; border-color: #9bb88a; background: #f3f9ef; }
-.smp-judge-pick select.ok1 { color: #7a6b00; border-color: #d6c84a; background: #fffce8; }
-.smp-judge-pick select.ok2 { color: #8a5a00; border-color: #e0a84a; background: #fff6e8; }
-.smp-judge-pick select.bad { color: #b03a2e; border-color: #e0a39c; background: #fdf1ef; }
+.smp-inline-field select.ok { color: #3a6b28; border-color: #9bb88a; background: #f3f9ef; }
+.smp-inline-field select.ok1 { color: #7a6b00; border-color: #d6c84a; background: #fffce8; }
+.smp-inline-field select.ok2 { color: #8a5a00; border-color: #e0a84a; background: #fff6e8; }
+.smp-inline-field select.bad { color: #b03a2e; border-color: #e0a39c; background: #fdf1ef; }
 </style>
